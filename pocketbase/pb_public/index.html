@@ -138,7 +138,7 @@ details summary{cursor:pointer;font-weight:700;padding:6px 0}
 <script src="pocketbase.umd.js"></script>
 <script>
 'use strict';
-const APP_VERSION='1.11.0 (03.11.2026)';
+const APP_VERSION='1.11.1 (03.11.2026)';
 /* ---------- helpers ---------- */
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
@@ -1011,9 +1011,30 @@ async function loadXLSX(){
   await new Promise((res,rej)=>{const sc=document.createElement('script');sc.src='xlsx.mini.min.js';sc.onload=res;sc.onerror=()=>rej(new Error('Excel-Leser konnte nicht geladen werden'));document.head.appendChild(sc)});
 }
 const cellText=v=>v==null?'':String(v).replace(/ /g,' ').replace(/\s+/g,' ').trim().replace(/,$/,'').trim();
+// gültiges Datum bauen; vertauschte Tag/Monat-Angaben (z. B. "2024.29.04") werden erkannt
+function isoDate(y,mo,d){mo=+mo;d=+d;if(mo>12&&d<=12)[mo,d]=[d,mo];
+  const t=new Date(Date.UTC(+y,mo-1,d));if(mo<1||mo>12||t.getUTCDate()!==d)return null;
+  return y+'-'+String(mo).padStart(2,'0')+'-'+String(d).padStart(2,'0')}
+// Reparatur älterer Importe: vertauschte Daten korrigieren, Stunden ohne Datum eindeutig benennen
+async function repairLessons(){
+  const fix=[];
+  for(const l of Object.values(S.lessons)){
+    const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(l.date||'');if(!m)continue;
+    const iso=isoDate(m[1],m[2],m[3]);
+    if(iso&&iso!==l.date){if(l.dated!==false&&l.name===fmtDate(l.date))l.name=fmtDate(iso);l.date=iso;fix.push(l)}
+  }
+  const groups={};
+  for(const l of Object.values(S.lessons))if(l.dated===false&&/^Stunde ohne Datum \(nach (\d{2}\.\d{2}\.|\?)\)$/.test(l.name))(groups[l.date]=groups[l.date]||[]).push(l);
+  for(const d in groups){
+    const all=Object.values(S.lessons).filter(l=>l.dated===false&&l.date===d).sort((a,b)=>(a.order||0)-(b.order||0));
+    all.forEach((l,i)=>{const n=`Stunde ohne Datum (nach ${fmtDate(d)})${i?` (${i+1})`:''}`;if(groups[d].includes(l)&&l.name!==n){l.name=n;if(!fix.includes(l))fix.push(l)}});
+  }
+  for(const l of fix)await Store.saveLesson(l);
+  return fix.length;
+}
 function sheetDate(name){
-  let m=/(\d{4})\.+(\d{1,2})\.(\d{1,2})/.exec(name);if(m)return m[1]+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0');
-  m=/(\d{1,2})\.(\d{1,2})\.(\d{4})/.exec(name);if(m)return m[3]+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0');
+  let m=/(\d{4})\.+(\d{1,2})\.(\d{1,2})/.exec(name);if(m)return isoDate(m[1],m[2],m[3]);
+  m=/(\d{1,2})\.(\d{1,2})\.(\d{4})/.exec(name);if(m)return isoDate(m[3],m[2],m[1]);
   return null;
 }
 // Optionale Korrekturliste für eine bekannte Kurs-Excel: pb_public/known_fix.json (nicht im Repo).
@@ -1031,12 +1052,15 @@ function isKnown(known,k){
   return false;
 }
 function excelPlan(wb){
-  const plan=[];let prev=null;
+  const plan=[];let prev=null,undK=0;
+  // Reiter ohne Datum: k-te Stunde ohne Datum nach dem letzten datierten Reiter (Datum mit Jahr)
+  const undated=(d,k)=>Object.values(S.lessons).filter(l=>l.dated===false&&l.date===d).sort((a,b)=>(a.order||0)-(b.order||0))[k-1];
   wb.SheetNames.forEach((name,si)=>{
     const rows=XLSX.utils.sheet_to_json(wb.Sheets[name],{header:1,blankrows:false,defval:null});
     const date=sheetDate(name);
-    const title=date?fmtDate(date):`Stunde ohne Datum (nach ${prev?prev.slice(8,10)+'.'+prev.slice(5,7)+'.':'?'})`;
-    const existing=date?lessonsSorted().find(l=>l.date===date&&l.dated!==false):lessonsSorted().find(l=>l.name===title);
+    if(date)undK=0;else undK++;
+    const title=date?fmtDate(date):`Stunde ohne Datum (nach ${prev?fmtDate(prev):'?'})${undK>1?` (${undK})`:''}`;
+    const existing=date?lessonsSorted().find(l=>l.date===date&&l.dated!==false):prev?undated(prev,undK):lessonsSorted().find(l=>l.name===title);
     const known=new Set();
     if(existing)for(const w of existing.words||[]){known.add(wkey(w));if(w.orig&&w.orig.en)known.add(normAns(w.orig.en,'en'))}
     const items=[];let ri=0;
@@ -1068,7 +1092,7 @@ function parseFixes(raw){
 }
 function fixPrompt(plan){
   const list=[];for(const p of plan){if(!p.on)continue;for(const it of xNew(p))if(it.on!==false)list.push(`${it.id} | ${it.de||'(fehlt)'} | ${it.en||'(fehlt)'}`)}
-  return `Prüf bitte diese Vokabeln aus meinem Englischkurs (Niveau A2–B1, Firma für Kabel und Leitungen). Format pro Zeile: ID | Deutsch | Englisch.
+  return `Prüf bitte diese Vokabeln aus meinem Englischkurs (Niveau A2–B1). Format pro Zeile: ID | Deutsch | Englisch.
 
 Korrigiere nur echte Fehler: Tippfehler und Rechtschreibung (Deutsch und Englisch), fehlende Übersetzungen ("(fehlt)") und eindeutig falsche Übersetzungen. Lass alles andere genau so, wie es ist (keine Umformulierungen, keine Groß-/Kleinschreibung ändern, außer bei Substantiven im Deutschen).
 
@@ -1079,7 +1103,7 @@ ${list.join('\n')}`;
 async function importExcel(file){
   const root=openSheet('<h3>Excel wird gelesen …</h3>');
   let plan,showFix=false;
-  try{await loadXLSX();await loadKnownFix();const wb=XLSX.read(await file.arrayBuffer());plan=excelPlan(wb)}
+  try{await loadXLSX();await loadKnownFix();await repairLessons();const wb=XLSX.read(await file.arrayBuffer());plan=excelPlan(wb)}
   catch(e){console.error(e);$('#sheets').innerHTML='';render();return toast('Excel konnte nicht gelesen werden: '+(e.message||e),'err')}
   const itemRow=it=>{
     const miss=!it.de||!it.en;
