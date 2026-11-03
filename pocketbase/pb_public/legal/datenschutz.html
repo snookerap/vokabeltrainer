@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Datenschutz – Vokabeltrainer</title>
+<link rel="stylesheet" href="legal.css">
+</head>
+<body>
+<main>
+<a class="back" href="/">‹ Zur App</a>
+<h1>Datenschutz</h1>
+<p class="muted">Stand: 03.11.2026</p>
+
+<div class="card">
+  <p><b>Kurz gesagt:</b> Der Vokabeltrainer ist ein privates, nicht-kommerzielles Lernprojekt. Er ist kein Angebot eines Arbeitgebers oder Kursanbieters. Alles läuft auf einem privaten Server. Es gibt kein Tracking, keine Werbung und keine Analyse-Dienste, und Schriften und Skripte werden nicht von fremden Servern geladen. Spracherkennung und KI-Stimme laufen ebenfalls auf diesem Server; Aufnahmen gehen an keinen KI-Anbieter.</p>
+</div>
+
+<h2>Verantwortlich</h2>
+<p id="op">Betreiber dieser App<span id="opname"></span><span id="opcontact"></span></p>
+
+<h2>Welche Daten gespeichert werden</h2>
+<ul>
+  <li><b>Konto:</b> E-Mail-Adresse und Passwort. Das Passwort wird nur als verschlüsselter Hash gespeichert.</li>
+  <li><b>Lerninhalte:</b> Unterrichtsstunden, Vokabeln, Beispielsätze, Notizen und App-Einstellungen.</li>
+  <li><b>Lernstand:</b> Welche Wörter wann geübt wurden und wie sicher sie sitzen.</li>
+  <li><b>Lehrer-Aufnahmen:</b> Hochgeladene MP3-Dateien sowie die daraus erzeugte Abschrift und die Wort-Ausschnitte.</li>
+  <li><b>Eigene Sprachaufnahmen</b> (Aussprache-Training und Diktat): Sie entstehen nur, wenn du aufs Mikrofon tippst. Der Server wandelt sie in Text um und löscht sie automatisch nach etwa einer Stunde.</li>
+  <li><b>Server-Protokolle:</b> IP-Adresse, Zeitpunkt, aufgerufene Adresse und Browserkennung. Sie dienen dem Schutz vor Missbrauch, zum Beispiel gegen das Erraten von Passwörtern, und werden nach 7 Tagen gelöscht.</li>
+</ul>
+<p>Im Browser wird nur das Anmelde-Token gespeichert (lokaler Speicher), damit du angemeldet bleibst. Das ist technisch notwendig. Tracking-Cookies gibt es nicht.</p>
+
+<h2>Wer die Daten sieht</h2>
+<p>Alle Konten dieser App nutzen derzeit denselben Datenbestand: dieselben Stunden, Wörter, Aufnahmen und denselben Lernstand. Technisch hat außerdem der Betreiber Zugriff auf alle gespeicherten Daten.</p>
+
+<h2>Weitere Empfänger</h2>
+<ul>
+  <li id="proxy" hidden></li>
+  <li><b>Claude (Anthropic):</b> Nur wenn du selbst einen der Claude-Knöpfe antippst (z. B. „Mit Claude üben“, „Sätze holen“ oder die Prüfung beim Excel-Import), öffnet die App claude.ai mit einem vorausgefüllten Text, der die Vokabeln enthält. Automatisch wird nichts übertragen. Danach gelten die Bedingungen deines eigenen Claude-Kontos.</li>
+</ul>
+
+<h2>Rechtsgrundlage und Speicherdauer</h2>
+<p>Die Daten werden verarbeitet, um dir die App auf deinen Wunsch bereitzustellen (Art. 6 Abs. 1 lit. b DSGVO). Die Server-Protokolle dienen der Sicherheit des Servers (Art. 6 Abs. 1 lit. f DSGVO). Konto und Lerndaten bleiben gespeichert, bis du die Löschung verlangst. Sicherungskopien des Servers werden im üblichen Turnus überschrieben.</p>
+
+<h2>Deine Rechte</h2>
+<p>Du kannst Auskunft über deine Daten verlangen, ihre Berichtigung oder Löschung, eine Einschränkung der Verarbeitung, und du kannst der Verarbeitung widersprechen. Eine Kopie deiner Daten kannst du jederzeit selbst unter „Mehr → Exportieren“ herunterladen. Wende dich dazu an den oben genannten Betreiber. Außerdem kannst du dich bei einer Datenschutz-Aufsichtsbehörde beschweren.</p>
+
+<p class="muted" style="margin-top:28px"><a href="lizenzen.html">Lizenzen und verwendete Software</a></p>
+</main>
+<script>
+fetch('/api/legal').then(r=>r.ok?r.json():{}).then(d=>{
+  const t=(id,s)=>{document.getElementById(id).textContent=s};
+  if(d&&d.name)t('opname',': '+d.name);
+  if(d&&d.contact)t('opcontact',' · Kontakt: '+d.contact);
+  if(!d||(!d.name&&!d.contact))t('opname',' (Name und Kontakt sind noch nicht eingetragen)');
+  const px=document.getElementById('proxy');
+  if(d&&/cloudflare/i.test(d.proxy||'')){px.innerHTML='<b>Cloudflare:</b> Die App ist über Cloudflare erreichbar. Deshalb läuft der Datenverkehr einschließlich deiner IP-Adresse über Server von Cloudflare, Inc. (USA). Mehr dazu: <a href="https://www.cloudflare.com/privacypolicy/" rel="noopener">Datenschutzerklärung von Cloudflare</a>.';px.hidden=false}
+  else if(d&&d.proxy){px.innerHTML='<b></b> Die App ist über diesen Dienstleister erreichbar. Deshalb läuft der Datenverkehr einschließlich deiner IP-Adresse über dessen Server.';px.firstChild.textContent=d.proxy+':';px.hidden=false}
+}).catch(()=>{});
+</script>
+</body>
+</html>

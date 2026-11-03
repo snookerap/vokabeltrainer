@@ -1,0 +1,15 @@
+# Zugangsdaten – niemals ins Repository!
+.env
+
+# Datenbank, Lehrer-Aufnahmen und KI-Modelle (liegen nur auf dem Server)
+data/
+
+# Python
+__pycache__/
+*.pyc
+
+# private Kurs-Daten
+pocketbase/pb_public/known_fix.json
+privat/
+*.xlsx
+*.mp3

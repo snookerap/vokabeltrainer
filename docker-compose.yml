@@ -1,0 +1,45 @@
+name: vokabeltrainer
+
+services:
+  pocketbase:
+    build: ./pocketbase
+    container_name: vokabeltrainer-pb
+    restart: unless-stopped
+    ports:
+      - "8090:8090"            # Nginx Proxy Manager zeigt hierauf
+    environment:
+      PB_SUPERUSER_EMAIL: ${PB_SUPERUSER_EMAIL}
+      PB_SUPERUSER_PASSWORD: ${PB_SUPERUSER_PASSWORD}
+      APP_USER_EMAIL: ${APP_USER_EMAIL}
+      APP_USER_PASSWORD: ${APP_USER_PASSWORD}
+      APP_OPERATOR_NAME: ${APP_OPERATOR_NAME:-}        # für die Datenschutzseite
+      APP_OPERATOR_CONTACT: ${APP_OPERATOR_CONTACT:-}
+      APP_PROXY_PROVIDER: ${APP_PROXY_PROVIDER:-}
+    volumes:
+      - ./data/pb_data:/pb/pb_data   # Datenbank + MP3s -> diesen Ordner sichern
+      - ./pocketbase/pb_public:/pb/pb_public:ro         # App-Dateien: Änderungen wirken sofort
+      - ./pocketbase/pb_hooks:/pb/pb_hooks:ro           # Server-Erweiterungen (nach Änderung: docker compose restart pocketbase)
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8090/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  worker:
+    build: ./worker
+    container_name: vokabeltrainer-worker
+    restart: unless-stopped
+    depends_on:
+      - pocketbase
+    environment:
+      PB_URL: http://pocketbase:8090
+      PB_SUPERUSER_EMAIL: ${PB_SUPERUSER_EMAIL}
+      PB_SUPERUSER_PASSWORD: ${PB_SUPERUSER_PASSWORD}
+      WHISPER_MODEL: ${WHISPER_MODEL:-small}
+      WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-}
+      WHISPER_THREADS: ${WHISPER_THREADS:-0}
+      PIPER_VOICE_GB: ${PIPER_VOICE_GB:-en_GB-cori-high}
+      PIPER_VOICE_US: ${PIPER_VOICE_US:-en_US-ljspeech-high}
+      PIPER_LENGTH_SCALE: ${PIPER_LENGTH_SCALE:-1.05}
+    volumes:
+      - ./data/models:/models        # Whisper- und Piper-Modelle (Download beim ersten Start)
