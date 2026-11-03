@@ -138,7 +138,7 @@ details summary{cursor:pointer;font-weight:700;padding:6px 0}
 <script src="pocketbase.umd.js"></script>
 <script>
 'use strict';
-const APP_VERSION='1.12.0 (03.11.2026)';
+const APP_VERSION='1.13.0 (03.11.2026)';
 /* ---------- helpers ---------- */
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
@@ -152,7 +152,9 @@ const fmtDate=iso=>iso?iso.slice(8,10)+'.'+iso.slice(5,7)+'.'+iso.slice(0,4):'';
 const uid=p=>p+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 
 const S={lessons:{},progress:{},meta:{},recs:{},tts:{},needLogin:false,dirty:new Set(),tab:'home',view:null,ses:null,ready:false,error:null,addLid:null,lastAdded:[]};
-const DEF={prefer:'teacher',voice:'en-GB',autoplay:true,len:20,mode:'mix',dir:'mix',focus:'due'};
+const DEF={prefer:'teacher',voice:'en-GB',autoplay:true,len:20,mode:'mix',dir:'mix',focus:'due',newPerDay:10};
+const TOPICS=[['tech','🔧','Technik & Kabel'],['sales','🤝','Vertrieb & Kunden'],['talk','💬','Meetings & Kommunikation'],['econ','📊','Zahlen & Wirtschaft'],['travel','✈️','Reisen & Verkehr'],['sport','🏃','Sport & Freizeit'],['people','🙂','Gefühle & Charakter'],['society','🏛️','Gesellschaft & Politik'],['daily','🏠','Alltag & Allgemeines'],['phrases','🧩','Sätze & Grammatik']];
+const TOPIC=Object.fromEntries(TOPICS.map(t=>[t[0],{id:t[0],icon:t[1],name:t[2]}]));
 const set=()=>Object.assign({},DEF,S.meta.settings||{});
 
 function toast(msg,kind){const t=document.createElement('div');t.className='toast'+(kind?' '+kind:'');t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),kind==='err'?4500:2200)}
@@ -303,7 +305,7 @@ function wkey(w){return normAns(w.en,'en')}
 const isNote=w=>w&&w.kind==='note';
 function grade(lid,wid,ok,hard){
   const now=Date.now();if(!S.progress[lid])S.progress[lid]={w:{}};if(!S.progress[lid].w)S.progress[lid].w={};
-  const p=S.progress[lid].w[wid]||{b:0,n:0,l:0};p.n++;p.s=now;
+  const p=S.progress[lid].w[wid]||{b:0,n:0,l:0};if(!p.n&&!p.k)p.f=now;p.n++;p.s=now;delete p.q;
   if(ok&&!hard){p.b=Math.min(p.b+1,7);p.d=startOfDay(now)+INT[p.b]*DAY}
   else if(ok&&hard){p.b=Math.max(1,p.b);p.d=startOfDay(now)+Math.max(1,Math.round(INT[p.b]/2))*DAY}
   else{p.l++;p.b=1;p.d=now}
@@ -315,6 +317,28 @@ function grade(lid,wid,ok,hard){
     if(!S.progress[l.id])S.progress[l.id]={w:{}};if(!S.progress[l.id].w)S.progress[l.id].w={};
     S.progress[l.id].w[w.id]=Object.assign({},p);Store.saveProgress(l.id);
   }
+}
+// Lernstand auf alle gleichen Wörter (auch in anderen Stunden) übertragen
+function setProg(lid,wid,p){
+  const me=curWordBy(lid,wid);if(!me)return [];const k=wkey(me);const touched=[];
+  for(const l of Object.values(S.lessons))for(const w of l.words||[]){
+    if(isNote(w)||!(l.id===lid&&w.id===wid)&&wkey(w)!==k)continue;
+    if(!S.progress[l.id])S.progress[l.id]={w:{}};if(!S.progress[l.id].w)S.progress[l.id].w={};
+    touched.push([l.id,w.id,S.progress[l.id].w[w.id]?clone(S.progress[l.id].w[w.id]):null]);
+    if(p)S.progress[l.id].w[w.id]=Object.assign({},p);else delete S.progress[l.id].w[w.id];Store.saveProgress(l.id);
+  }
+  return touched;
+}
+// neue Wörter pro Tag: heute zum ersten Mal gelernte (gleiche Wörter zählen einmal)
+function newToday(){const t0=startOfDay(Date.now());const k=new Set();
+  for(const lid in S.progress){const l=S.lessons[lid];if(!l)continue;for(const w of l.words||[]){const p=prog(lid,w.id);if(p&&p.f&&p.f>=t0)k.add(wkey(w))}}return k.size}
+function newQuota(){const n=+set().newPerDay;return n>0?Math.max(0,n-newToday()):Infinity}
+// Reihenfolge für neue Wörter: neueste Stunden zuerst (dein aktueller Kurs), dann rückwärts durchs Archiv
+function newByPriority(items){
+  const rank={};lessonsSorted().forEach((l,i)=>rank[l.id]=i);
+  const seen=new Set(),out=[];
+  for(const i of items.filter(i=>status(i.p)==='n'&&!isNote(i.w)).sort((a,b)=>rank[a.lid]-rank[b.lid])){const k=wkey(i.w);if(seen.has(k))continue;seen.add(k);out.push(i)}
+  return out;
 }
 function curWordBy(lid,wid){const l=S.lessons[lid];return l&&(l.words||[]).find(w=>w.id===wid)}
 function dupsOf(lid,w){if(isNote(w))return [];const k=wkey(w);const out=[];for(const l of lessonsSorted())for(const x of l.words||[])if(!(l.id===lid&&x.id===w.id)&&!isNote(x)&&wkey(x)===k)out.push(l);return out}
@@ -363,9 +387,10 @@ function buildSession(cfg){
   // Notizen nur bei Karten/Gemischt; Lückensatz braucht einen Beispielsatz
   if(!['card','mix'].includes(cfg.mode))items=items.filter(i=>!isNote(i.w));
   if(cfg.mode==='cloze')items=items.filter(i=>clozeParts(i.w.ex));
+  if(cfg.topic)items=items.filter(i=>cfg.topic==='none'?!i.w.topic&&!isNote(i.w):i.w.topic===cfg.topic);
   if(cfg.focus==='due'){
     const due=shuffle(items.filter(i=>isDue(i.p,now))).sort((a,b)=>a.p.d-b.p.d);
-    const nw=items.filter(i=>status(i.p)==='n');
+    const nw=newByPriority(items).slice(0,newQuota());
     items=due.concat(nw);
   }else if(cfg.focus==='hard'){items=items.filter(i=>isHard(i.p)).sort((a,b)=>(b.p.l/b.p.n)-(a.p.l/a.p.n))}
   else if(cfg.focus==='new'){items=items.filter(i=>status(i.p)==='n')}
@@ -419,18 +444,19 @@ function endSession(){stopRec();stopAudio();Store.flushProgress();flushStats();S
 
 /* ---------- rendering ---------- */
 const app=$('#app');
-function softRender(){if(S.ses||S.player||$('.scrim'))return;render()}
+function softRender(){if(S.ses||S.player||S.sort||$('.scrim'))return;render()}
 function render(){
   const keep={};let focusId=null,selS=0,selE=0;
   $$('input[id],textarea[id],select[id]',app).forEach(e=>{if(e.type!=='file')keep[e.id]=e.value});
   const ae=document.activeElement;if(ae&&ae.id&&app.contains(ae)){focusId=ae.id;try{selS=ae.selectionStart;selE=ae.selectionEnd}catch(e){}}
-  $('#tabs').hidden=!S.ready||!!S.ses||!!S.player||!!S.error;document.body.classList.toggle('in-ses',!!(S.ses||S.player));
+  $('#tabs').hidden=!S.ready||!!S.ses||!!S.player||!!S.sort||!!S.error;document.body.classList.toggle('in-ses',!!(S.ses||S.player||S.sort));
   $$('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===S.tab));
   if(S.needLogin){$('#tabs').hidden=true;app.innerHTML=viewLogin();return}
   if(S.error){app.innerHTML=viewError();return}
   if(!S.ready){app.innerHTML='<div class="center pad muted">Lade deine Vokabeln …</div>';return}
   let html='';
-  if(S.player)html=viewPlayer();
+  if(S.sort)html=viewSort();
+  else if(S.player)html=viewPlayer();
   else if(S.ses)html=viewSession();
   else if(S.tab==='home')html=viewHome();
   else if(S.tab==='practice')html=viewSetup();
@@ -460,15 +486,18 @@ function bar(c){if(!c.tot)return '<div class="bar"></div>';return `<div class="b
 
 function viewHome(){
   const ls=lessonsSorted();const all=ls.map(l=>l.id);const c=counts(all);const last=ls[0];const st=streak();
-  const today=c.due+Math.min(c.nw,Math.max(0,20-c.due));
+  const q=newQuota();const nwAvail=newByPriority(allItems(all)).length;const nwToday=Math.min(nwAvail,q);
+  const today=c.due+nwToday;const sortable=nwAvail;
   if(!ls.length)return `<div class="top"><div class="grow"><h1>Vokabeln</h1></div></div>
     <div class="card center pad"><h2>Noch keine Stunden</h2><p class="muted">Lege deine erste Stunde an und trage die Wörter ein.</p><button class="btn pri" data-act="tab" data-v="add">Erstes Wort eintragen</button></div>`;
   const lc=last?counts([last.id]):null;
   return `<div class="top"><div class="grow"><h1>Vokabeln</h1><div class="sub">${c.tot} Wörter · ${ls.length} Stunden${st?` · 🔥 ${st} Tag${st>1?'e':''} in Folge`:''}</div></div></div>
   <div class="card hero">
-    <div class="row"><div class="grow"><div class="big">${today}</div><div class="sub">Wörter für heute · ${c.due} zum Wiederholen, ${today-c.due} neu</div></div></div>
+    <div class="row"><div class="grow"><div class="big">${today}</div><div class="sub">Wörter für heute · ${c.due} zum Wiederholen, ${nwToday} neu${+set().newPerDay>0&&nwAvail>nwToday?` <span style="opacity:.75">(Tageslimit ${set().newPerDay})</span>`:''}</div></div></div>
     <div style="margin-top:16px"><button class="btn pri full" data-act="quick" data-v="due" ${today?'':'disabled'}>${today?'Jetzt üben':'Alles erledigt für heute ✓'}</button></div>
   </div>
+  ${sortable>=20?`<div class="card"><div class="row"><div class="grow"><h3>⚡ Kenn ich schon?</h3><div class="small muted">${sortable} Wörter noch nie geübt. Sortier schnell aus, was du schon kannst – dann kommen nur die anderen ins Tageslimit.</div></div></div>
+    <button class="btn full" style="margin-top:12px" data-act="sortstart">Vorsortieren</button></div>`:''}
   ${last?`<div class="card"><div class="row"><div class="grow"><div class="sub">Letzte Stunde</div><h3>${esc(last.name)}</h3><div class="small muted">${lc.tot} Wörter · ${lc.s} sicher · ${lc.nw} neu${recsFor(last.id).length?' · 🎧':''}</div>${bar(lc)}</div></div>
     <div class="row" style="margin-top:12px"><button class="btn pri grow" data-act="quick" data-v="last">Üben</button>${recsFor(last.id).length?`<button class="btn grow" data-act="hear" data-v="${last.id}">🎧 Anhören</button>`:''}<button class="btn grow" data-act="open" data-v="${last.id}">Ansehen</button></div></div>`:''}
   <div class="row" style="gap:10px;margin-bottom:12px"><button class="btn grow" data-act="quick" data-v="prep">🎒 Vor dem Kurs</button><button class="btn grow" data-act="claude">💬 Mit Claude</button></div>
@@ -479,13 +508,19 @@ function viewHome(){
 
 function viewSetup(){
   const ls=lessonsSorted();const st=set();
-  if(!S.setup)S.setup={lids:ls.length?[ls[0].id]:[],focus:st.focus,mode:st.mode,dir:st.dir,len:st.len};
+  if(!S.setup)S.setup={lids:ls.length?[ls[0].id]:[],focus:st.focus,mode:st.mode,dir:st.dir,len:st.len,topic:''};
   const u=S.setup;u.lids=u.lids.filter(id=>S.lessons[id]);
-  const c=counts(u.lids);
-  const n=u.focus==='due'?c.due+c.nw:u.focus==='new'?c.nw:u.focus==='hard'?allItems(u.lids).filter(i=>isHard(i.p)).length:c.tot;
+  const c=counts(u.lids);const tItems=u.topic?allItems(u.lids).filter(i=>u.topic==='none'?!i.w.topic&&!isNote(i.w):i.w.topic===u.topic):null;
+  if(tItems){const now=Date.now();Object.assign(c,{tot:tItems.length,due:tItems.filter(i=>isDue(i.p,now)).length,nw:tItems.filter(i=>status(i.p)==='n').length})}
+  if(u.focus==='due')c.nw=Math.min(newByPriority(tItems||allItems(u.lids)).length,newQuota());
+  const n=u.focus==='due'?c.due+c.nw:u.focus==='new'?c.nw:u.focus==='hard'?(tItems||allItems(u.lids)).filter(i=>isHard(i.p)).length:c.tot;
+  const allW=allItems(ls.map(l=>l.id)).filter(i=>!isNote(i.w));const tc=t=>allW.filter(i=>t==='none'?!i.w.topic:i.w.topic===t).length;
+  const topicCard=allW.some(i=>i.w.topic)?`<div class="card"><div class="row"><h3 class="grow">Thema</h3><span class="small muted">${u.topic?'gilt für die gewählten Stunden':'optional'}</span></div>
+    <div class="chips" style="margin-top:10px"><button class="chip ${u.topic?'':'on'}" data-act="topic" data-v="">Alle Themen</button>${TOPICS.filter(t=>tc(t[0])).map(t=>`<button class="chip ${u.topic===t[0]?'on':''}" data-act="topic" data-v="${t[0]}">${t[1]} ${esc(t[2])} <span class="muted">${tc(t[0])}</span></button>`).join('')}${tc('none')?`<button class="chip ${u.topic==='none'?'on':''}" data-act="topic" data-v="none">❔ ohne Thema <span class="muted">${tc('none')}</span></button>`:''}</div></div>`:'';
   const take=u.len>0?Math.min(u.len,n):n;
   const segBtns=(key,opts)=>`<div class="seg">${opts.map(([v,t])=>`<button data-act="setup" data-k="${key}" data-v="${v}" class="${String(u[key])===String(v)?'on':''}">${t}</button>`).join('')}</div>`;
   return `<div class="top"><div class="grow"><h1>Üben</h1><div class="sub">Stell dir deine Runde zusammen</div></div></div>
+  ${topicCard}
   <div class="card">
     <div class="row"><h3 class="grow">Stunden</h3><span class="small muted">${u.lids.length} gewählt</span></div>
     <div class="chips" style="margin:10px 0"><button class="chip" data-act="pick" data-v="last">Letzte</button><button class="chip" data-act="pick" data-v="last3">Letzte 3</button><button class="chip" data-act="pick" data-v="all">Alle</button><button class="chip" data-act="pick" data-v="none">Keine</button></div>
@@ -625,14 +660,14 @@ function viewLesson(id){
   const l=S.lessons[id];const c=counts([id]);const words=l.words||[];const withClip=words.filter(w=>clipOf(w)).length;const recs=recsFor(id);
   return `<div class="top"><button class="btn icon ghost" data-act="back" aria-label="Zurück">‹</button><div class="grow"><h2>${esc(l.name)}</h2><div class="sub">${c.tot} Wörter · ${c.s} sicher · ${c.l} am Lernen · ${c.nw} neu</div></div><button class="btn icon" data-act="editlesson" aria-label="Stunde bearbeiten">✎</button></div>
   <div class="row" style="margin-bottom:12px"><button class="btn pri grow" data-act="practicelesson">Üben</button><button class="btn grow" data-act="addto">+ Wort</button></div>
-  <div class="row" style="margin-bottom:12px;gap:10px"><button class="btn grow" data-act="claude">💬 Mit Claude üben</button>${words.some(needsExample)?`<button class="btn grow" data-act="examples">✍️ Sätze holen (${words.filter(needsExample).length})</button>`:''}</div>
+  <div class="row" style="margin-bottom:12px;gap:10px"><button class="btn grow" data-act="claude">💬 Mit Claude üben</button>${words.some(needsTopic)?`<button class="btn grow" data-act="topics">🏷️ Themen holen (${words.filter(needsTopic).length})</button>`:''}${words.some(needsExample)?`<button class="btn grow" data-act="examples">✍️ Sätze holen (${words.filter(needsExample).length})</button>`:''}</div>
   <div class="card"><h3>🎧 Aufnahme vom Lehrer</h3>
     <div class="small muted">${recs.length?`${withClip} von ${words.length} Wörtern haben einen Lehrer-Clip.`:'Lade hier die MP3 vom Ende der Stunde hoch. Whisper schneidet daraus automatisch jedes Wort.'}</div>
     ${recs.map(r=>`<div class="corr"><div class="row"><div class="grow"><b>${esc(r.orig_name||'Aufnahme')}</b><br><span class="muted">${recStatus(r)}</span></div>
       <button class="btn icon pri" data-act="hearrec" data-v="${r.id}" aria-label="Anhören">🎧</button><button class="btn icon" data-act="recmenu" data-v="${r.id}" aria-label="Optionen">⋯</button></div></div>`).join('')}
     <label class="btn full center" style="display:grid;place-items:center;margin-top:12px">${recs.length?'Weitere MP3 hochladen':'MP3 hochladen'}<input type="file" accept="audio/*,video/mp4,.mp3,.m4a,.mp4,.wav,.ogg" data-act="upload" hidden></label>
     ${words.some(w=>w.clip)&&recs.some(r=>r.status==='done')?`<p class="small muted">Stimmt ein Clip nicht? Tippe auf das Wort und wähle den Ausschnitt neu.</p>`:''}</div>
-  <div class="list">${words.map(w=>{const p=prog(id,w.id);const cl=clipOf(w);return `<div class="li"><span class="dot ${status(p)}"></span><button class="grow" style="background:none;border:0;text-align:left;padding:0" data-act="editword" data-v="${w.id}"><div class="en">${isNote(w)?'📝 ':''}${esc(isNote(w)?w.de:w.en)}${w.orig?' <span class="tag">korrigiert</span>':''}</div><div class="de">${esc(isNote(w)?w.en:w.de)}</div></button>
+  <div class="list">${words.map(w=>{const p=prog(id,w.id);const cl=clipOf(w);return `<div class="li"><span class="dot ${status(p)}"></span><button class="grow" style="background:none;border:0;text-align:left;padding:0" data-act="editword" data-v="${w.id}"><div class="en">${isNote(w)?'📝 ':''}${esc(isNote(w)?w.de:w.en)}${w.orig?' <span class="tag">korrigiert</span>':''}</div><div class="de">${esc(isNote(w)?w.en:w.de)}${w.topic&&TOPIC[w.topic]?` <span title="${esc(TOPIC[w.topic].name)}">${TOPIC[w.topic].icon}</span>`:''}</div></button>
     ${isNote(w)?'':cl?`<button class="btn icon" data-act="playw" data-which="teacher" data-l="${id}" data-w="${w.id}" aria-label="Lehrer">👤</button>`:''}${isNote(w)?'':`<button class="btn icon" data-act="playw" data-which="ai" data-l="${id}" data-w="${w.id}" aria-label="KI-Stimme">${ttsOf(w)?'🤖':'🔈'}</button>`}</div>`}).join('')||'<div class="li muted">Noch keine Wörter.</div>'}</div>
   <p class="small muted">👤 Lehrer-Clip · 🤖 KI-Stimme (Piper) · 🔈 Handy-Stimme, solange die KI-Stimme noch erzeugt wird.<br>Punkte: grün sicher · gelb am Lernen · grau neu.</p>`;
 }
@@ -648,6 +683,9 @@ function viewMore(){
     <p class="small muted" style="margin:6px 0 0">${ttsCount} von ${total} Wörtern sind in dieser Stimme fertig.${ttsCount<total?' Der Rest wird gerade im Hintergrund erzeugt.':''}</p>
     <label class="f">Aussprache automatisch abspielen</label>${sb('autoplay',[[true,'Ja'],[false,'Nein']])}
   </div>
+  <div class="card"><h3>Neue Wörter pro Tag</h3>
+    ${sb('newPerDay',[[5,'5'],[10,'10'],[20,'20'],[0,'Ohne Limit']])}
+    <p class="small muted" style="margin:6px 0 0">So viele noch nie geübte Wörter kommen täglich zu den Wiederholungen dazu – zuerst aus den neuesten Stunden, dann rückwärts durch ältere. Heute schon: ${newToday()}.</p></div>
   <div class="card"><h3>Claude-Projekt</h3><p class="small muted">Optional: Link zu deinem Claude-Projekt. Dann erscheint beim Üben mit Claude der Knopf „In meinem Englisch-Projekt öffnen“.</p>
     <div class="row"><input class="t grow" id="projurl" value="${esc(st.claudeProject||DEFAULT_PROJECT)}" placeholder="https://claude.ai/project/…" autocapitalize="off"><button class="btn" data-act="saveproj">OK</button></div></div>
   <div class="card"><h3>Sichern</h3><p class="small muted">Der Export enthält alle Stunden, Wörter, deinen Lernstand und die Clip-Zuordnungen. Die MP3s selbst liegen auf dem Server im Ordner data/ – den bitte mitsichern.</p>
@@ -735,6 +773,9 @@ async function importJSON(file){
     if(d.type==='examples'){let n=0,ls=0;for(const lid in d.examples||{}){const l=S.lessons[lid];if(!l)continue;let ch=false;
         for(const w of l.words||[]){const v=d.examples[lid][w.id];if(v&&!w.ex){w.ex=v;n++;ch=true}}if(ch){await Store.saveLesson(l);ls++}}
       toast(n+' Beispielsätze in '+ls+' Stunden übernommen');render();return}
+    if(d.type==='topics'){let n=0,ls=0;for(const lid in d.topics||{}){const l=S.lessons[lid];if(!l)continue;let ch=false;
+        for(const w of l.words||[]){const v=d.topics[lid][w.id];if(v&&TOPIC[v]&&w.topic!==v&&!isNote(w)){w.topic=v;n++;ch=true}}if(ch){await Store.saveLesson(l);ls++}}
+      toast(n+' Wörter in '+ls+' Stunden einem Thema zugeordnet');render();return}
     if(!d.lessons)throw new Error('Keine Vokabel-Datei');
     const ex=d.lessons.filter(l=>S.lessons[l.id]).length;
     if(!(await confirmBox(`${d.lessons.length} Stunden importieren?${ex?` ${ex} davon gibt es schon – sie werden ergänzt. Clips, Beispielsätze und dein neuerer Lernstand bleiben erhalten.`:''}`,'Importieren')))return;
@@ -744,7 +785,7 @@ async function importJSON(file){
       const cur=S.lessons[l.id];
       const words=(l.words||[]).map(w=>{const x=Object.assign({},w);if(Array.isArray(x.audio))delete x.audio;if(x.clip&&!S.recs[x.clip.rec])delete x.clip;
         const old=cur&&(cur.words||[]).find(o=>o.id===w.id);
-        if(old){for(const k of ['clip','noClip','ex','kind','note'])if(old[k]!==undefined&&x[k]===undefined)x[k]=old[k];if(old.clip&&old.clip.manual)x.clip=old.clip}
+        if(old){for(const k of ['clip','noClip','ex','kind','note','topic'])if(old[k]!==undefined&&x[k]===undefined)x[k]=old[k];if(old.clip&&old.clip.manual)x.clip=old.clip}
         return x});
       if(cur)for(const o of cur.words||[])if(!words.some(w=>w.id===o.id))words.push(o);
       const nl={id:l.id,name:cur?cur.name:l.name,date:(cur?cur.date:l.date)||'',dated:(cur?cur.dated:l.dated)!==false,order:cur?cur.order:(l.order||0),words};
@@ -918,6 +959,73 @@ ${ws.map(w=>`${w.id}: ${ttsText(w.en)} (= ${w.de})`).join('\n')}`;
       let n=0;for(const w of l.words){const v=obj[w.id];if(typeof v==='string'&&v.includes('[')&&v.includes(']')&&!w.ex){w.ex=v.trim();n++}}
       if(!n)return toast('Keine passenden Sätze gefunden','err');
       Store.saveLesson(l);toast(n+' Beispielsätze übernommen');closeSheet();
+    }
+  };
+}
+
+/* ---------- Kenn ich schon? – schnell vorsortieren ---------- */
+function startSort(){
+  const q=newByPriority(allItems(lessonsSorted().map(l=>l.id))).filter(i=>!(i.p&&i.p.q));
+  if(!q.length)return toast('Keine ungeübten Wörter zum Vorsortieren');
+  actx();S.sort={q,idx:0,hist:[],known:0,show:false};render();
+}
+function sortMark(know){
+  const s=S.sort;const it=s.q[s.idx];if(!it)return;const now=Date.now();const cur=prog(it.lid,it.w.id)||{b:0,n:0,l:0};
+  const p=know?{b:5,n:1,l:0,s:now,d:startOfDay(now)+INT[5]*DAY,k:1}:Object.assign({},cur,{q:1});
+  s.hist.push({touched:setProg(it.lid,it.w.id,p),know});if(know)s.known++;s.idx++;s.show=false;render();
+}
+function sortUndo(){
+  const s=S.sort;const h=s.hist.pop();if(!h)return;
+  for(const [lid,wid,old] of h.touched){if(old)S.progress[lid].w[wid]=old;else delete S.progress[lid].w[wid];Store.saveProgress(lid)}
+  if(h.know)s.known--;s.idx--;s.show=false;render();
+}
+function viewSort(){
+  const s=S.sort;const it=s.q[s.idx];const done=s.idx;
+  if(!it){Store.flushProgress();return `<div class="ses"><div class="spacer"></div><div class="qcard"><div class="lbl">Fertig</div><div class="q">${done} Wörter sortiert</div>
+    <div class="x">${s.known} kanntest du schon – die kommen erst in 30 Tagen zur Kontrolle wieder. ${done-s.known} lernst du nach und nach über das Tageslimit.</div></div>
+    <div class="spacer"></div><button class="btn pri full" data-act="sortend">Zurück</button></div>`}
+  const w=it.w;const l=S.lessons[it.lid];
+  return `<div class="ses">
+    <div class="row" style="padding:14px 0 4px"><button class="btn icon ghost" data-act="sortend" aria-label="Beenden">✕</button><div class="prog"><i style="width:${done/s.q.length*100}%"></i></div><span class="small muted">${done}/${s.q.length}</span></div>
+    <div class="small muted center">${s.known} gekannt · ${esc(l?l.name:'')}${w.topic&&TOPIC[w.topic]?' · '+TOPIC[w.topic].icon+' '+esc(TOPIC[w.topic].name):''}</div>
+    <div class="spacer"></div>
+    <div class="qcard"><div class="lbl">Kennst du das?</div><div class="q">${esc(w.en)}</div>
+      ${s.show?`<div class="a">${esc(w.de)}</div>`:`<button class="btn ghost" style="margin-top:10px" data-act="sortshow">Bedeutung zeigen</button>`}
+      <div style="margin-top:10px"><button class="btn icon" data-act="sortplay" aria-label="Anhören">🔈</button></div></div>
+    <div class="spacer"></div>
+    <div class="row" style="gap:10px"><button class="btn grow" style="min-height:60px" data-act="sortlearn">📚 Lernen</button><button class="btn pri grow" style="min-height:60px" data-act="sortknow">✓ Kenn ich</button></div>
+    <div class="row" style="margin-top:10px"><button class="btn ghost" data-act="sortundo" ${s.hist.length?'':'disabled'}>↶ Zurück</button><div class="grow"></div><button class="btn ghost" data-act="sortend">Fertig</button></div>
+  </div>`;
+}
+
+/* ---------- Themen holen (Claude ordnet zu) ---------- */
+function needsTopic(w){return !isNote(w)&&!w.topic}
+function parseTopics(raw){
+  let t=String(raw||'').replace(/```(?:json)?/gi,'').replace(/[“”„‟«»]/g,'"');const m=t.match(/\{[\s\S]*\}/);
+  if(!m)return null;try{const o=JSON.parse(m[0]);return o&&typeof o==='object'?o:null}catch(e){return null}
+}
+function sheetTopics(lid){
+  const l=S.lessons[lid];const ws=(l.words||[]).filter(needsTopic);
+  const text=`Ordne bitte jede dieser englischen Vokabeln (aus meinem Englischkurs) genau einem Thema zu. Themen (ID = Name):
+${TOPICS.map(t=>`${t[0]} = ${t[2]}`).join('\n')}
+
+Ganze Sätze und Grammatik-Beispiele kommen zu "phrases". Antworte NUR mit einem JSON-Objekt in einem JSON-Codeblock, ohne Erklärung, im Format {"Wort-ID": "Themen-ID"}. Verwende gerade Anführungszeichen ("):
+
+${ws.map(w=>`${w.id}: ${w.en} (= ${w.de})`).join('\n')}`;
+  const root=openSheet(`<div class="row"><div class="grow"><h2>🏷️ Themen holen</h2><div class="sub">${ws.length} Wörter ohne Thema in ${esc(l.name)}</div></div><button class="btn icon" data-x="close">✕</button></div>
+    <p class="small"><b>1.</b> Claude ordnet die Wörter den Themen zu:</p>
+    <button class="btn pri full" data-x="ask" ${ws.length?'':'disabled'}>💬 In Claude öffnen</button>
+    <p class="small" style="margin-top:14px"><b>2.</b> Claudes Antwort kopieren und hier einfügen:</p>
+    <textarea class="t" id="tpans" placeholder='{"w0101": "tech"}'></textarea>
+    <button class="btn full" style="margin-top:10px" data-x="apply">Themen übernehmen</button>`);
+  root.onclick=e=>{const x=e.target.closest('[data-x]');if(e.target.classList.contains('scrim'))return closeSheet();if(!x)return;
+    if(x.dataset.x==='close')return closeSheet();
+    if(x.dataset.x==='ask')return openClaude(text,'new');
+    if(x.dataset.x==='apply'){
+      const obj=parseTopics($('#tpans').value);if(!obj)return toast('Keine Zuordnung gefunden – bitte Claudes komplette Antwort einfügen','err');
+      let n=0;for(const w of l.words){const v=String(obj[w.id]||'').trim().toLowerCase();if(TOPIC[v]&&!w.topic&&!isNote(w)){w.topic=v;n++}}
+      if(!n)return toast('Keine passenden Zuordnungen gefunden','err');
+      Store.saveLesson(l);toast(n+' Wörter einem Thema zugeordnet');closeSheet();render();
     }
   };
 }
@@ -1304,6 +1412,7 @@ function sheetWord(lid,wid){
     ${dups.length?`<div class="hint">Kommt auch vor in: ${dups.map(x=>esc(x.name)).join(', ')} – der Lernstand ist gemeinsam.</div>`:''}
     <label class="f">Beispielsatz – Vokabel in [ ] für Lückensätze</label><input class="t" id="eex" value="${esc(w.ex||'')}" autocapitalize="off" placeholder="Learning a language needs a lot of [patience].">
     <label class="f">Notiz</label><input class="t" id="eno" value="${esc(w.note||'')}">
+    ${note?'':`<label class="f">Thema</label><select class="t" id="etp"><option value="">– kein Thema –</option>${TOPICS.map(t=>`<option value="${t[0]}" ${w.topic===t[0]?'selected':''}>${t[1]} ${esc(t[2])}</option>`).join('')}</select>`}
     <div class="card small" style="margin-top:12px"><b>Lehrer-Clip:</b> ${clipOf(w)?`${(clipOf(w).e-clipOf(w).s).toFixed(1)} s${w.clip.manual?' (von dir gewählt)':' (automatisch)'}`:w.noClip?'ausgeschaltet':'keiner'}
       <div class="row wrap" style="margin-top:6px">${clipOf(w)?'<button class="btn ghost small" style="min-height:36px;padding:6px 10px" data-x="pclip">▶ Anhören</button>':''}<button class="btn ghost small" style="min-height:36px;padding:6px 10px" data-x="clip">Ausschnitt wählen</button></div></div>
     ${w.orig?`<div class="card small" style="margin-top:12px">Im Excel stand: <b>${esc(w.orig.de||'–')}</b> = <b>${esc(w.orig.en||'–')}</b><br><button class="btn ghost small" style="margin-top:6px;min-height:36px;padding:6px 10px" data-x="restore">Original wiederherstellen</button></div>`:''}
@@ -1317,7 +1426,7 @@ function sheetWord(lid,wid){
     if(x.dataset.x==='del'){if(await confirmBox(`„${w.en}“ löschen?`,'Löschen')){l.words=l.words.filter(y=>y.id!==wid);Store.saveLesson(l);toast('Gelöscht')}return closeSheet()}
     if(x.dataset.x==='save'){
       const de=$('#ede').value.trim(),en=$('#een').value.trim();if(!de||!en)return toast('Deutsch und Englisch ausfüllen');
-      Object.assign(w,{de,en,ex:$('#eex').value.trim()||undefined,note:$('#eno').value.trim()||undefined});
+      Object.assign(w,{de,en,ex:$('#eex').value.trim()||undefined,note:$('#eno').value.trim()||undefined});if($('#etp')){w.topic=$('#etp').value||undefined}
       if(w.orig&&w.orig.de===de&&w.orig.en===en)delete w.orig;
       Store.saveLesson(l);toast('Gespeichert');closeSheet();
     }
@@ -1383,6 +1492,15 @@ document.addEventListener('click',async e=>{
     case 'pick':{const ls=lessonsSorted();S.setup.lids=v==='last'?ls.slice(0,1).map(l=>l.id):v==='last3'?ls.slice(0,3).map(l=>l.id):v==='all'?ls.map(l=>l.id):[];render();break}
     case 'toggle':{const L=S.setup.lids;const i=L.indexOf(v);if(i>=0)L.splice(i,1);else L.push(v);render();break}
     case 'setup':{const k=b.dataset.k;S.setup[k]=k==='len'?+v:v;render();break}
+    case 'topic':{const u=S.setup;if(v&&!u.topic)u.lids=lessonsSorted().map(l=>l.id);u.topic=v;render();break}
+    case 'sortstart':startSort();break;
+    case 'sortknow':sortMark(true);break;
+    case 'sortlearn':sortMark(false);break;
+    case 'sortundo':sortUndo();break;
+    case 'sortshow':if(S.sort){S.sort.show=true;render()}break;
+    case 'sortplay':{const it=S.sort&&S.sort.q[S.sort.idx];if(it)playWord(it.lid,it.w.id);break}
+    case 'sortend':S.sort=null;Store.flushProgress();render();break;
+    case 'topics':sheetTopics(S.view.lesson);break;
     case 'start':if(S.setup.mode==='hear'){plUnlock();startPlayer(S.setup.lids.slice())}else startSession(Object.assign({},S.setup));break;
     case 'hear':plUnlock();startPlayer([v]);break;
     case 'hearrec':{plUnlock();const r=S.recs[v];if(r)startPlayer([r.lesson_key],v);break}

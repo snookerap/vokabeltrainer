@@ -15,6 +15,8 @@ Der Worker hat keinen offenen Port und spricht nur intern mit PocketBase.
 - **Lehrer-MP3 hochladen:** Whisper schneidet daraus automatisch jedes Wort. Die ganze Aufnahme lässt sich mit Mitlesen anhören, auch bei gesperrtem Bildschirm
 - Übungsarten: Karteikarte, Multiple Choice, Schreiben, Hören, Lückensatz, Diktat und Sprechen (mit Whisper-Prüfung)
 - Wiederholung nach dem Leitner-Prinzip, „Vor dem Kurs“-Runde, Fortschrittskurve
+- **Tageslimit für neue Wörter** (neueste Stunden zuerst), **„Kenn ich schon?“-Vorsortieren** für große Wortbestände
+- **Themen** (z. B. Technik, Vertrieb, Meetings): beim Üben filtern, per Claude zuordnen („🏷️ Themen holen“) oder als Datei importieren
 - **Mit Claude üben:** öffnet ein Rollenspiel mit deinen Wörtern auf claude.ai (nur auf Knopfdruck)
 - Grammatik-Notizen, Export und Import als JSON
 
