@@ -138,7 +138,7 @@ details summary{cursor:pointer;font-weight:700;padding:6px 0}
 <script src="pocketbase.umd.js"></script>
 <script>
 'use strict';
-const APP_VERSION='1.11.1 (03.11.2026)';
+const APP_VERSION='1.12.0 (03.11.2026)';
 /* ---------- helpers ---------- */
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
@@ -1051,34 +1051,56 @@ function isKnown(known,k){
   for(const x of known){const m=Math.max(x.length,k.length);if(x.length>12&&Math.abs(x.length-k.length)<=3&&1-lev(x,k)/m>=0.9)return true}
   return false;
 }
+function excelRows(rows){
+  const out=[];
+  for(const r of rows){
+    let de=cellText(r[0]),en=cellText(r[1]);const c=cellText(r[2]);let ex=null;
+    if(!en&&c){en=c;de=de.replace(/^\d+\.\s*/,'')}else if(c&&c.includes('['))ex=c; // Satz in Spalte C: Nummerierung "1." weg
+    if(!de&&!en)continue;
+    if(['0','#NAME?','#N/A','#WERT!','#VALUE!'].includes(en)||/^(deutsch|german)$/i.test(de)||/^SATZBAU/i.test(de)&&!en)continue;
+    out.push({de,en,ex});
+  }
+  return out;
+}
+function lessonKeys(l){const k=new Set();for(const w of (l&&l.words)||[]){k.add(wkey(w));if(w.orig&&w.orig.en)k.add(normAns(w.orig.en,'en'))}return k}
+function rowKeys(r){const k=[normAns(r.en,'en')];const kf=KNOWN_FIX_MAP.get(r.de+'\u0001'+r.en);if(kf)k.push(normAns(kf[3],'en'));return k.filter(Boolean)}
+// wie viele Zeilen eines Reiters stecken schon in einer Stunde?
+function overlap(rows,l){const k=lessonKeys(l);let n=0;for(const r of rows)if(rowKeys(r).some(x=>isKnown(k,x)))n++;return n}
+// Zeilen eines Reiters gegen die gewählte Stunde prüfen: neu / schon da / unvollständig
+function xBuild(p,si){
+  const known=lessonKeys(p.existing);const items=[];let ri=0;
+  for(const r of p.rows){
+    const id='x'+si+'_'+(ri++);const {de,en,ex}=r;
+    if(en&&isKnown(known,normAns(en,'en'))){items.push({id,de,en,st:'dup'});continue}
+    const it={id,de,en,st:'new',on:true};if(ex)it.ex=ex;
+    const kf=KNOWN_FIX_MAP.get(de+'\u0001'+en);
+    if(kf){it.de=kf[2];it.en=kf[3];it.orig={de,en};it.fix='auto';
+      if(isKnown(known,normAns(it.en,'en'))){it.st='dup';items.push(it);continue}}
+    if(!it.de||!it.en)it.st='bad';
+    known.add(normAns(it.en||it.id,'en'));items.push(it);
+  }
+  p.items=items;p.on=items.some(i=>i.st!=='dup');
+}
 function excelPlan(wb){
-  const plan=[];let prev=null,undK=0;
-  // Reiter ohne Datum: k-te Stunde ohne Datum nach dem letzten datierten Reiter (Datum mit Jahr)
-  const undated=(d,k)=>Object.values(S.lessons).filter(l=>l.dated===false&&l.date===d).sort((a,b)=>(a.order||0)-(b.order||0))[k-1];
+  const plan=[];let prev=null;const claimed=new Set(),newCount={};
   wb.SheetNames.forEach((name,si)=>{
-    const rows=XLSX.utils.sheet_to_json(wb.Sheets[name],{header:1,blankrows:false,defval:null});
-    const date=sheetDate(name);
-    if(date)undK=0;else undK++;
-    const title=date?fmtDate(date):`Stunde ohne Datum (nach ${prev?fmtDate(prev):'?'})${undK>1?` (${undK})`:''}`;
-    const existing=date?lessonsSorted().find(l=>l.date===date&&l.dated!==false):prev?undated(prev,undK):lessonsSorted().find(l=>l.name===title);
-    const known=new Set();
-    if(existing)for(const w of existing.words||[]){known.add(wkey(w));if(w.orig&&w.orig.en)known.add(normAns(w.orig.en,'en'))}
-    const items=[];let ri=0;
-    for(const r of rows){
-      let de=cellText(r[0]),en=cellText(r[1]);const c=cellText(r[2]);let ex=null;
-      if(!en&&c){en=c;de=de.replace(/^\d+\.\s*/,'')}else if(c&&c.includes('['))ex=c; // Satz in Spalte C: Nummerierung "1." weg
-      if(!de&&!en)continue;
-      if(['0','#NAME?','#N/A','#WERT!','#VALUE!'].includes(en)||/^(deutsch|german)$/i.test(de)||/^SATZBAU/i.test(de)&&!en)continue;
-      const id='x'+si+'_'+(ri++);const exDe=de,exEn=en;
-      if(en&&isKnown(known,normAns(en,'en'))){items.push({id,de,en,st:'dup'});continue}
-      const it={id,de,en,st:'new',on:true};if(ex)it.ex=ex;
-      const kf=KNOWN_FIX_MAP.get(exDe+'\u0001'+exEn);
-      if(kf){it.de=kf[2];it.en=kf[3];it.orig={de:exDe,en:exEn};it.fix='auto';
-        if(isKnown(known,normAns(it.en,'en'))){it.st='dup';items.push(it);continue}}
-      if(!it.de||!it.en)it.st='bad';
-      known.add(normAns(it.en||it.id,'en'));items.push(it);
-    }
-    plan.push({sheet:name,date,title,existing,items,on:items.some(i=>i.st!=='dup'),open:false});
+    const rows=excelRows(XLSX.utils.sheet_to_json(wb.Sheets[name],{header:1,blankrows:false,defval:null}));
+    const date=sheetDate(name);const p={sheet:name,si,date,rows,open:false,existing:null};
+    if(date){p.title=fmtDate(date);p.existing=lessonsSorted().find(l=>l.date===date&&l.dated!==false)||null}
+    else if(rows.length){
+      // Reiter ohne Datum: passende Stunde ohne Datum nach demselben Datum über den Inhalt finden
+      const cands=Object.values(S.lessons).filter(l=>l.dated===false&&!claimed.has(l.id)&&(prev?l.date===prev:true))
+        .map(l=>({l,n:overlap(rows,l)})).filter(c=>c.n>0).sort((a,b)=>b.n-a.n||(a.l.order||0)-(b.l.order||0));
+      const best=cands[0];
+      if(best&&best.n>=Math.max(1,Math.ceil(rows.length*0.5))&&!(cands[1]&&cands[1].n===best.n))p.existing=best.l;
+      else if(best){p.ask=true;p.choices=cands.slice(0,5);p.existing=null} // unsicher: Nutzer entscheidet
+      if(prev){const have=Object.values(S.lessons).filter(l=>l.dated===false&&l.date===prev).length;newCount[prev]=(newCount[prev]||have)+(p.existing?0:1);
+        p.title=p.existing?p.existing.name:`Stunde ohne Datum (nach ${fmtDate(prev)})${newCount[prev]>1?` (${newCount[prev]})`:''}`}
+      else p.title=p.existing?p.existing.name:'Stunde ohne Datum';
+      p.newTitle=p.title;
+    }else p.title=name;
+    if(p.existing)claimed.add(p.existing.id);
+    xBuild(p,si);plan.push(p);
     if(date)prev=date;
   });
   return plan;
@@ -1120,14 +1142,16 @@ async function importExcel(file){
     const row=(p,i)=>{const nw=xNew(p),miss=nw.filter(x=>!x.de||!x.en).length,dup=p.items.length-nw.length;
       return `<div class="li" style="align-items:flex-start;min-height:52px;flex-wrap:wrap">
         <input type="checkbox" data-i="${i}" ${p.on?'checked':''} ${nw.length?'':'disabled'} style="width:22px;height:22px;margin-top:3px">
-        <div class="grow"><div class="en">${esc(p.title)} <span class="tag">${p.existing?'vorhanden':'neue Stunde'}</span></div>
+        <div class="grow"><div class="en">${esc(p.existing?p.existing.name:p.title)} <span class="tag">${p.existing?'vorhanden':'neue Stunde'}</span>${p.ask?' <span class="tag" style="color:var(--warn)">bitte prüfen</span>':''}</div>
+          ${p.ask?`<div class="small muted" style="margin:4px 0">Reiter „${esc(p.sheet)}“ ohne Datum – gehört er zu einer vorhandenen Stunde?</div>
+            <select class="t" style="min-height:40px;font-size:15px;padding:6px 10px" data-target="${i}"><option value="">Neue Stunde anlegen</option>${p.choices.map(c=>`<option value="${esc(c.l.id)}" ${p.existing&&p.existing.id===c.l.id?'selected':''}>${esc(c.l.name)} (${c.n} von ${p.rows.length} Wörtern gleich)</option>`).join('')}</select>`:''}
           <div class="de">${nw.length?`<b>${xReady(p).length} neu</b>`:'nichts Neues'}${dup?` · ${dup} schon da`:''}${miss?` · <span style="color:var(--warn)">${miss} unvollständig</span>`:''}${nw.some(x=>x.fix)?` · ${nw.filter(x=>x.fix).length} korrigiert`:''}</div>
           ${nw.length?`<details data-open="${i}" ${p.open?'open':''}><summary class="small">anzeigen & bearbeiten</summary>${nw.map(itemRow).join('')}</details>`:''}
         </div></div>`};
     const idx=plan.map((p,i)=>i);const hot=idx.filter(i=>xNew(plan[i]).length),cold=idx.filter(i=>!hot.includes(i));
     root.innerHTML=`<div class="scrim"><div class="sheet" role="dialog"><div class="grab"></div>
       <div class="row"><div class="grow"><h2>📥 Excel importieren</h2><div class="sub">${esc(file.name)} · ${plan.length} Reiter</div></div><button class="btn icon" data-x="close">✕</button></div>
-      <p class="small muted">Jeder Reiter wird eine Stunde. Vorhandene Wörter werden übersprungen. Neue Wörter kannst du unter „anzeigen & bearbeiten“ direkt korrigieren.${auto?` <b>${auto} bekannte Tippfehler</b> sind schon berichtigt.`:''}</p>
+      ${plan.some(p=>p.ask)?`<p class="small" style="color:var(--warn)"><b>${plan.filter(p=>p.ask).length} Reiter ohne Datum</b> konnte ich nicht sicher zuordnen – bitte bei „bitte prüfen“ auswählen.</p>`:''}<p class="small muted">Jeder Reiter wird eine Stunde. Vorhandene Wörter werden übersprungen. Neue Wörter kannst du unter „anzeigen & bearbeiten“ direkt korrigieren.${auto?` <b>${auto} bekannte Tippfehler</b> sind schon berichtigt.`:''}</p>
       <div class="list" style="max-height:44vh;overflow:auto">${hot.map(i=>row(plan[i],i)).join('')||'<div class="li muted">In keinem Reiter gibt es neue Wörter.</div>'}
         ${cold.length?`<details><summary class="small" style="padding:10px 14px">${cold.length} Reiter ohne Neues</summary>${cold.map(i=>row(plan[i],i)).join('')}</details>`:''}</div>
       ${n?`<details style="margin-top:10px" ${showFix?'open':''} data-fix><summary class="small"><b>✍️ Mit Claude prüfen</b> – Tippfehler & fehlende Übersetzungen</summary>
@@ -1148,6 +1172,7 @@ async function importExcel(file){
       it.st=it.de&&it.en?'new':'bad';draw();return}
     if(t.dataset.on){const it=xFind(plan,t.dataset.on);if(it){it.on=t.checked;draw()}return}
     if(t.dataset.i!=null){plan[+t.dataset.i].on=t.checked;draw()}
+    if(t.dataset.target!=null){const p=plan[+t.dataset.target];p.existing=t.value?S.lessons[t.value]:null;p.title=p.existing?p.existing.name:p.newTitle;xBuild(p,p.si);draw()}
   });
   root.onclick=async e=>{
     if(e.target.classList.contains('scrim'))return closeSheet();
