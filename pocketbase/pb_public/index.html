@@ -143,7 +143,7 @@ details summary{cursor:pointer;font-weight:700;padding:6px 0}
 <script src="pocketbase.umd.js"></script>
 <script>
 'use strict';
-const APP_VERSION='1.15.0 (04.11.2026)';
+const APP_VERSION='1.15.1 (04.11.2026)';
 /* ---------- helpers ---------- */
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
@@ -157,7 +157,7 @@ const fmtDate=iso=>iso?iso.slice(8,10)+'.'+iso.slice(5,7)+'.'+iso.slice(0,4):'';
 const uid=p=>p+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 
 const S={lessons:{},progress:{},meta:{},recs:{},tts:{},needLogin:false,dirty:new Set(),tab:'home',view:null,ses:null,ready:false,error:null,addLid:null,lastAdded:[]};
-const DEF={prefer:'teacher',voice:'en-GB',autoplay:true,len:20,mode:'mix',dir:'mix',focus:'due',newPerDay:10};
+const DEF={prefer:'teacher',voice:'en-GB',autoplay:true,autoNext:false,len:20,mode:'mix',dir:'mix',focus:'due',newPerDay:10};
 const TOPICS=[['tech','🔧','Technik & Kabel'],['sales','🤝','Vertrieb & Kunden'],['talk','💬','Meetings & Kommunikation'],['econ','📊','Zahlen & Wirtschaft'],['travel','✈️','Reisen & Verkehr'],['sport','🏃','Sport & Freizeit'],['people','🙂','Gefühle & Charakter'],['society','🏛️','Gesellschaft & Politik'],['daily','🏠','Alltag & Allgemeines'],['phrases','🧩','Sätze & Grammatik']];
 const TOPIC=Object.fromEntries(TOPICS.map(t=>[t[0],{id:t[0],icon:t[1],name:t[2]}]));
 const set=()=>Object.assign({},DEF,S.meta.settings||{});
@@ -317,7 +317,7 @@ function playWord(lid,wid,which){
   const l=S.lessons[lid];const w=l&&l.words.find(x=>x.id===wid);if(!w)return;actx();
   const useT=which==='teacher'?!!clipOf(w):which==='ai'?false:(set().prefer==='teacher'&&!!clipOf(w));
   const p=useT?playTeacher(w):playAI(w);
-  p.catch(e=>{console.warn(e);
+  return p.catch(e=>{console.warn(e);
     if(e&&(e.name==='NotAllowedError'||/blockiert/.test(e.message||'')))return toast('Zum Abspielen kurz auf 🔈 tippen');
     toast('Audio-Fehler: '+(e.message||e),'err');speakBrowser(w.en)});
 }
@@ -614,7 +614,7 @@ function viewSession(){
       :`<div class="q">${esc(prompt)}</div>${!de2en?`<div>${spk}</div>`:''}`}${st.done?extra:''}</div>
       <div class="opts">${st.opts.map((o,i)=>{let c='';if(st.done){if(o===correct)c='ok';else if(i===st.pick)c='no'}return `<button class="opt ${c}" data-act="mc" data-v="${i}" ${st.done?'disabled':''}>${esc(o)}</button>`}).join('')}</div>
       <div class="spacer"></div>
-      ${st.done&&!st.ok?`<button class="btn pri full" style="margin-top:14px" data-act="next">Weiter</button>`:''}`;
+      ${st.done&&(!st.ok||!set().autoNext)?`<button class="btn pri full" style="margin-top:14px" data-act="next" id="nextbtn">Weiter</button>`:''}`;
   }else{
     const cp=it.type==='cloze'?clozeParts(w.ex):null;
     const top=it.type==='cloze'?`<div class="qcard">${lbl}<div class="q" style="font-size:24px">${esc(cp.pre)}<span style="border-bottom:2px solid var(--acc);${st.done?'color:var(--acc)':''}">${st.done?esc(cp.ans):'&nbsp;'.repeat(12)}</span>${esc(cp.post)}</div><div class="x" style="font-style:normal">${esc(w.de)}</div>${st.done?`<div style="margin-top:8px">${spk}</div>`:''}</div>`
@@ -727,6 +727,8 @@ function viewMore(){
     <label class="f">KI-Stimme</label>${viewVoices()}
     <p class="small muted" style="margin:6px 0 0">${ttsCount} von ${total} Wörtern sind in dieser Stimme fertig.${ttsCount<total?' Der Rest wird gerade im Hintergrund erzeugt.':''}</p>
     <label class="f">Aussprache automatisch abspielen</label>${sb('autoplay',[[true,'Ja'],[false,'Nein']])}
+    <label class="f">Nach richtiger Antwort (Auswahl & Hören)</label>${sb('autoNext',[[false,'Weiter-Knopf'],[true,'Automatisch']])}
+    <p class="small muted" style="margin:6px 0 0">${set().autoNext?'Springt weiter, sobald die Stimme fertig ist, plus kurze Lesezeit.':'Die Karte bleibt stehen, bis du auf „Weiter“ tippst – Zeit für Beispielsatz und Übersetzung.'}</p>
   </div>
   <div class="card"><h3>Neue Wörter pro Tag</h3>
     ${sb('newPerDay',[[5,'5'],[10,'10'],[20,'20'],[0,'Ohne Limit']])}
@@ -1639,7 +1641,7 @@ function dupHint(){
   for(const l of lessonsSorted())for(const w of l.words||[])if(normAns(w.en,'en')===en){box.innerHTML=`<div class="hint">Gibt es schon in Stunde ${esc(l.name)}: ${esc(w.en)} = ${esc(w.de)}</div>`;return}
   box.innerHTML='';
 }
-function autoSpeakAfter(it){if(set().autoplay&&it.type!=='listen'&&it.type!=='dict'&&!isNote(curWord(it))&&(it.dir==='de-en'||it.type==='cloze'))playWord(it.lid,it.wid)}
+function autoSpeakAfter(it){if(set().autoplay&&it.type!=='listen'&&it.type!=='dict'&&!isNote(curWord(it))&&(it.dir==='de-en'||it.type==='cloze'))return playWord(it.lid,it.wid);return null}
 
 document.addEventListener('click',async e=>{
   const tb=e.target.closest('#tabs button');if(tb){S.tab=tb.dataset.tab;S.view=null;if(tb.dataset.tab==='practice')S.setup=null;render();window.scrollTo(0,0);return}
@@ -1710,8 +1712,9 @@ document.addEventListener('click',async e=>{
     case 'reveal':s.state.shown=true;render();autoSpeakAfter(s.q[s.idx]);break;
     case 'rate':answer(v!=='0',v==='1');nextItem();break;
     case 'mc':{const it=s.q[s.idx];const w=curWord(it);const st=s.state;if(st.done)break;st.pick=+v;st.done=true;st.ok=st.opts[+v]===w[st.field];answer(st.ok);render();
-      if(it.type==='mc')autoSpeakAfter(it);else if(st.ok)playWord(it.lid,it.wid);
-      if(st.ok)setTimeout(()=>{if(S.ses===s&&s.state===st)nextItem()},1100);break}
+      const pr=it.type==='mc'?autoSpeakAfter(it):st.ok?playWord(it.lid,it.wid):null;
+      // nur wenn unter „Mehr“ eingeschaltet: weiter, sobald die Stimme fertig ist, plus Lesezeit
+      if(st.ok&&set().autoNext)Promise.resolve(pr).catch(()=>{}).then(()=>setTimeout(()=>{if(S.ses===s&&s.state===st)nextItem()},pr?1500:2500));break}
     case 'check':doCheck();break;
     case 'dunno':{const st=s.state;st.done=true;st.ok=false;st.input='';answer(false);render();autoSpeakAfter(s.q[s.idx]);break}
     case 'override':{const it=s.q[s.idx];const k=it.wid+it.lid;const p=prog(it.lid,it.wid);
