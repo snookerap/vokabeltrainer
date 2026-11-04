@@ -92,7 +92,7 @@ Ein selbst gehosteter Vokabeltrainer fürs Handy, gemacht für Englischkurse: Vo
 <p>
   <img src="docs/screenshots/13-mehr.png" width="190" alt="Stimmen">
   <img src="docs/screenshots/10-claude.png" width="190" alt="Mit Claude üben">
-  <img src="docs/screenshots/11-kenn-ich-schon.png" width="190" alt="Kenn ich schon">
+  <img src="docs/screenshots/11-kenn-ich-schon.png" width="190" alt="Kenn ich schon – Liste nach Stunden">
 </p>
 
 - **KI-Stimme (Piper)** für jedes Wort, erzeugt auf deinem Server. 7 frei lizenzierte Stimmen zur Wahl (britisch/amerikanisch, weiblich/männlich) mit **Hörprobe**. Beim Üben bevorzugt *Lehrer* oder *KI* – der zweite Knopf spielt jeweils die andere Stimme.
