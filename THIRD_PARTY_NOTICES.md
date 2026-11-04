@@ -24,6 +24,11 @@ Beide Dateien sind unverändert. Das SDK hat nur einen Lizenz-Kopfkommentar erha
 | onnxruntime | MIT |
 | requests | Apache-2.0 |
 | NumPy | BSD-3-Clause |
+| pywebpush 2.0.3, py-vapid (Push-Erinnerungen) | MPL-2.0 |
+| http-ece | MIT |
+| cryptography | Apache-2.0 oder BSD-3-Clause |
+| aiohttp | Apache-2.0 |
+| tzdata | Apache-2.0 |
 | FFmpeg (Debian-Paket) | LGPL-2.1+/GPL-2+ |
 
 Piper ist GPL-lizenziert. Es läuft unverändert im Worker-Container, und die App liefert nur die erzeugten MP3-Dateien aus, also keine Weitergabe der Software. Wer das **Docker-Image selbst weitergibt**, muss die GPL-Pflichten erfüllen: Quellcode-Hinweis <https://github.com/OHF-Voice/piper1-gpl>.

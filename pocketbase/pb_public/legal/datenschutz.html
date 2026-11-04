@@ -10,7 +10,7 @@
 <main>
 <a class="back" href="/">‹ Zur App</a>
 <h1>Datenschutz</h1>
-<p class="muted">Stand: 03.11.2026</p>
+<p class="muted">Stand: 04.11.2026</p>
 
 <div class="card">
   <p><b>Kurz gesagt:</b> Der Vokabeltrainer ist ein privates, nicht-kommerzielles Lernprojekt. Er ist kein Angebot eines Arbeitgebers oder Kursanbieters. Alles läuft auf einem privaten Server. Es gibt kein Tracking, keine Werbung und keine Analyse-Dienste, und Schriften und Skripte werden nicht von fremden Servern geladen. Spracherkennung und KI-Stimme laufen ebenfalls auf diesem Server; Aufnahmen gehen an keinen KI-Anbieter.</p>
@@ -26,6 +26,8 @@
   <li><b>Lernstand:</b> Welche Wörter wann geübt wurden und wie sicher sie sitzen.</li>
   <li><b>Lehrer-Aufnahmen:</b> Hochgeladene MP3-Dateien sowie die daraus erzeugte Abschrift und die Wort-Ausschnitte.</li>
   <li><b>Eigene Sprachaufnahmen</b> (Aussprache-Training und Diktat): Sie entstehen nur, wenn du aufs Mikrofon tippst. Der Server wandelt sie in Text um und löscht sie automatisch nach etwa einer Stunde.</li>
+  <li><b>Erinnerungen</b> (nur wenn du sie einschaltest): eine Push-Adresse deines Geräts, die gewählten Uhrzeiten und deine Zeitzone. Ausschalten löscht den Eintrag.</li>
+  <li><b>Widget</b> (nur wenn du es einrichtest): ein zufälliger Schlüssel, mit dem das Widget die Tagesübersicht abrufen darf – Anzahl der Wörter für heute, Serie, Fortschritt und ein Wort des Tages.</li>
   <li><b>Server-Protokolle:</b> IP-Adresse, Zeitpunkt, aufgerufene Adresse und Browserkennung. Sie dienen dem Schutz vor Missbrauch, zum Beispiel gegen das Erraten von Passwörtern, und werden nach 7 Tagen gelöscht.</li>
 </ul>
 <p>Im Browser wird nur das Anmelde-Token gespeichert (lokaler Speicher), damit du angemeldet bleibst. Das ist technisch notwendig. Tracking-Cookies gibt es nicht.</p>
@@ -36,6 +38,7 @@
 <h2>Weitere Empfänger</h2>
 <ul>
   <li id="proxy" hidden></li>
+  <li><b>Push-Dienst des Geräteherstellers:</b> Erinnerungen werden verschlüsselt über den Push-Dienst deines Geräts zugestellt (beim iPhone Apple, bei Android Google). Der Dienst sieht die Push-Adresse und den Zeitpunkt, aber nicht den Inhalt.</li>
   <li><b>Claude (Anthropic):</b> Nur wenn du selbst einen der Claude-Knöpfe antippst (z. B. „Mit Claude üben“, „Sätze holen“ oder die Prüfung beim Excel-Import), öffnet die App claude.ai mit einem vorausgefüllten Text, der die Vokabeln enthält. Automatisch wird nichts übertragen. Danach gelten die Bedingungen deines eigenen Claude-Kontos.</li>
 </ul>
 

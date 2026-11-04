@@ -16,6 +16,7 @@ Der Worker hat keinen offenen Port und spricht nur intern mit PocketBase.
 - Übungsarten: Karteikarte, Multiple Choice, Schreiben, Hören, Lückensatz, Diktat und Sprechen (mit Whisper-Prüfung)
 - Wiederholung nach dem Leitner-Prinzip, „Vor dem Kurs“-Runde, Fortschrittskurve
 - **Tageslimit für neue Wörter** (neueste Stunden zuerst), **„Kenn ich schon?“-Vorsortieren** für große Wortbestände
+- **Tägliche Erinnerung** als Push-Mitteilung (nur wenn an dem Tag noch nicht geübt) und **Widget** für Home-/Sperrbildschirm über die App *Scriptable* – beides unter *Mehr*
 - **Themen** (z. B. Technik, Vertrieb, Meetings): beim Üben filtern, per Claude zuordnen („🏷️ Themen holen“) oder als Datei importieren
 - **Mit Claude üben:** öffnet ein Rollenspiel mit deinen Wörtern auf claude.ai (nur auf Knopfdruck)
 - Grammatik-Notizen, Export und Import als JSON
@@ -86,6 +87,12 @@ Enthält die Excel eurer Lehrkraft immer dieselben Tippfehler, kann der Import s
 ```json
 [["Excel-Deutsch", "Excel-Englisch", "richtiges Deutsch", "richtiges Englisch"]]
 ```
+
+### Erinnerungen und Widget
+
+- **Erinnerung:** Auf dem iPhone die App über *Teilen → Zum Home-Bildschirm* anlegen (iOS 16.4 oder neuer) und **von dort** öffnen, dann *Mehr → Tägliche Erinnerung*. Die Schlüssel für Push-Mitteilungen erzeugt der Worker beim ersten Start selbst (`data/models/vapid_private.pem` – mitsichern).
+- **Widget:** *Mehr → Widget fürs iPhone* → Skript kopieren → in [Scriptable](https://apps.apple.com/app/scriptable/id1405459188) einfügen. Das Widget ruft `/api/heute?key=…` ab; der Reverse Proxy muss diesen Pfad durchlassen (Standard).
+- Zeitzone für die Tagesübersicht: `APP_TZ` (Standard `Europe/Berlin`).
 
 ## Feinabstimmung (`.env`)
 

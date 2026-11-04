@@ -41,5 +41,7 @@ services:
       PIPER_VOICE_GB: ${PIPER_VOICE_GB:-en_GB-cori-high}
       PIPER_VOICE_US: ${PIPER_VOICE_US:-en_US-ljspeech-high}
       PIPER_LENGTH_SCALE: ${PIPER_LENGTH_SCALE:-1.05}
+      APP_TZ: ${APP_TZ:-Europe/Berlin}
+      APP_OPERATOR_CONTACT: ${APP_OPERATOR_CONTACT:-}
     volumes:
       - ./data/models:/models        # Whisper- und Piper-Modelle (Download beim ersten Start)

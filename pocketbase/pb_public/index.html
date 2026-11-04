@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vokabeltrainer Englisch</title>
 <meta name="theme-color" content="#0e6e64">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Vokabeln">
 <link href="fonts/fonts.css" rel="stylesheet">
 <style>
 :root{
@@ -138,7 +143,7 @@ details summary{cursor:pointer;font-weight:700;padding:6px 0}
 <script src="pocketbase.umd.js"></script>
 <script>
 'use strict';
-const APP_VERSION='1.13.1 (04.11.2026)';
+const APP_VERSION='1.14.0 (04.11.2026)';
 /* ---------- helpers ---------- */
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
@@ -701,6 +706,8 @@ function viewMore(){
   <div class="card"><h3>Neue Wörter pro Tag</h3>
     ${sb('newPerDay',[[5,'5'],[10,'10'],[20,'20'],[0,'Ohne Limit']])}
     <p class="small muted" style="margin:6px 0 0">So viele noch nie geübte Wörter kommen täglich zu den Wiederholungen dazu – zuerst aus den neuesten Stunden, dann rückwärts durch ältere. Heute schon: ${newToday()}.</p></div>
+  ${viewReminder()}
+  ${viewWidget()}
   <div class="card"><h3>Claude-Projekt</h3><p class="small muted">Optional: Link zu deinem Claude-Projekt. Dann erscheint beim Üben mit Claude der Knopf „In meinem Englisch-Projekt öffnen“.</p>
     <div class="row"><input class="t grow" id="projurl" value="${esc(st.claudeProject||DEFAULT_PROJECT)}" placeholder="https://claude.ai/project/…" autocapitalize="off"><button class="btn" data-act="saveproj">OK</button></div></div>
   <div class="card"><h3>Sichern</h3><p class="small muted">Der Export enthält alle Stunden, Wörter, deinen Lernstand und die Clip-Zuordnungen. Die MP3s selbst liegen auf dem Server im Ordner data/ – den bitte mitsichern.</p>
@@ -976,6 +983,97 @@ ${ws.map(w=>`${w.id}: ${ttsText(w.en)} (= ${w.de})`).join('\n')}`;
       Store.saveLesson(l);toast(n+' Beispielsätze übernommen');closeSheet();
     }
   };
+}
+
+/* ---------- Tägliche Erinnerung (Web-Push) ---------- */
+const isIOS=/iPhone|iPad|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+const isStandalone=()=>window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+const P={state:'?',rec:null};
+function pushSupported(){return 'serviceWorker' in navigator&&'PushManager' in window&&'Notification' in window}
+async function swReg(){if(!('serviceWorker' in navigator))return null;try{return await navigator.serviceWorker.register('sw.js')}catch(e){console.warn('SW',e);return null}}
+async function refreshPush(){
+  let st;
+  if(!pushSupported())st=isIOS&&!isStandalone()?'homescreen':'unsupported';
+  else if(Notification.permission==='denied')st='denied';
+  else{const reg=await swReg();const sub=reg&&await reg.pushManager.getSubscription();
+    if(sub){try{P.rec=await pb.collection('push').getFirstListItem(pb.filter('endpoint={:e}',{e:sub.endpoint}))}catch(e){P.rec=null}st=P.rec?'on':'off'}else{P.rec=null;st='off'}}
+  if(st!==P.state){P.state=st;if(S.tab==='more'&&!S.view)softRender()}
+}
+const TIMES=[];for(let h=6;h<=22;h++)for(const m of ['00','30'])TIMES.push(String(h).padStart(2,'0')+':'+m);
+function viewReminder(){
+  if(P.state==='?')setTimeout(refreshPush,0);
+  const r=P.rec,times=(r&&r.times)||['12:30'];const t1=times[0]||'12:30',t2=times[1]||'';
+  const sel=(id,v,none)=>`<select class="t" id="${id}" data-act="pushtime" style="min-height:44px;font-size:16px">${none?'<option value="">keine</option>':''}${TIMES.map(t=>`<option ${t===v?'selected':''}>${t}</option>`).join('')}</select>`;
+  const body={
+    '?':'<p class="small muted">Prüfe …</p>',
+    homescreen:'<p class="small muted">Erinnerungen gehen auf dem iPhone nur, wenn die App vom <b>Home-Bildschirm</b> aus geöffnet ist: in Safari <b>Teilen → Zum Home-Bildschirm</b>, dann die App dort öffnen und hier einschalten.</p>',
+    unsupported:'<p class="small muted">Dieser Browser unterstützt keine Mitteilungen.</p>',
+    denied:'<p class="small muted">Mitteilungen sind für die App blockiert. Auf dem iPhone unter <b>Einstellungen → Mitteilungen → Vokabeln</b> erlauben.</p>',
+    off:`<p class="small muted">Eine Mitteilung pro Tag – nur, wenn du an dem Tag noch nicht geübt hast. Mit Anzahl der Wörter, Serie und Wort des Tages.</p><button class="btn pri full" data-act="pushon">🔔 Erinnerung einschalten</button>`,
+    on:`<div class="row" style="gap:10px"><div class="grow"><label class="f" style="margin-top:0">Uhrzeit</label>${sel('pt1',t1)}</div><div class="grow"><label class="f" style="margin-top:0">2. Erinnerung</label>${sel('pt2',t2,true)}</div></div>
+      <p class="small muted" style="margin:8px 0">Kommt nur, wenn du an dem Tag noch nicht geübt hast. Gilt für dieses Gerät.</p>
+      <div class="row" style="gap:10px"><button class="btn grow" data-act="pushtest">Test senden</button><button class="btn grow" data-act="pushoff">Ausschalten</button></div>`
+  }[P.state];
+  return `<div class="card"><h3>🔔 Tägliche Erinnerung${P.state==='on'?' <span class="tag">an</span>':''}</h3>${body}</div>`;
+}
+function b64ToBytes(b){b=b.replace(/-/g,'+').replace(/_/g,'/');b+='='.repeat((4-b.length%4)%4);return Uint8Array.from(atob(b),c=>c.charCodeAt(0))}
+async function pushOn(){
+  const key=S.meta.push&&S.meta.push.publicKey;if(!key)return toast('Der Server hat noch keinen Push-Schlüssel – läuft der Worker?','err');
+  let perm;try{perm=await Notification.requestPermission()}catch(e){perm='denied'}
+  if(perm!=='granted'){P.state=perm==='denied'?'denied':'off';render();return toast('Mitteilungen nicht erlaubt')}
+  try{
+    const reg=await swReg();await navigator.serviceWorker.ready;
+    let sub=await reg.pushManager.getSubscription();if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64ToBytes(key)});
+    const j=sub.toJSON();const data={endpoint:j.endpoint,sub:j,times:['12:30'],tz:Intl.DateTimeFormat().resolvedOptions().timeZone||'Europe/Berlin',last:{},test:false,device:(isIOS?'iPhone/iPad':navigator.platform||'').slice(0,200)};
+    try{const ex=await pb.collection('push').getFirstListItem(pb.filter('endpoint={:e}',{e:j.endpoint}));P.rec=await pb.collection('push').update(ex.id,{sub:j,tz:data.tz})}
+    catch(e){P.rec=await pb.collection('push').create(data)}
+    P.state='on';render();toast('Erinnerung eingeschaltet – täglich um '+P.rec.times[0]);
+  }catch(e){console.error(e);toast('Einschalten fehlgeschlagen: '+(e.message||e),'err')}
+}
+async function pushOff(){
+  try{const reg=await swReg();const sub=reg&&await reg.pushManager.getSubscription();if(sub)await sub.unsubscribe()}catch(e){}
+  if(P.rec)try{await pb.collection('push').delete(P.rec.id)}catch(e){}
+  P.rec=null;P.state='off';render();toast('Erinnerung ausgeschaltet');
+}
+async function pushTimes(){
+  if(!P.rec)return;const t=[$('#pt1').value,$('#pt2').value].filter(Boolean);
+  try{P.rec=await pb.collection('push').update(P.rec.id,{times:[...new Set(t)]});toast('Gespeichert: '+P.rec.times.join(' und '))}catch(e){toast('Konnte nicht speichern','err')}
+}
+async function pushTest(){
+  if(!P.rec)return;try{P.rec=await pb.collection('push').update(P.rec.id,{test:true});toast('Test kommt in spätestens einer Minute')}catch(e){toast('Konnte nicht senden','err')}
+}
+
+/* ---------- Widget fürs iPhone (Scriptable) ---------- */
+let widgetSrc=null;
+function viewWidget(){
+  const k=S.meta.widget&&S.meta.widget.key;
+  if(k&&!widgetSrc)fetch('widget/vokabeln-scriptable.js',{cache:'no-store'}).then(r=>r.text()).then(t=>{widgetSrc=t}).catch(()=>{});
+  return `<div class="card"><h3>📱 Widget fürs iPhone</h3>
+    <p class="small muted">Zeigt auf dem Home- oder Sperrbildschirm deine Wörter für heute, die Serie, den Fortschritt und ein Wort des Tages. Läuft über die kostenlose App <b>Scriptable</b>.</p>
+    ${k?`<ol class="small" style="padding-left:20px;margin:8px 0">
+        <li><a href="https://apps.apple.com/app/scriptable/id1405459188" target="_blank" rel="noopener">Scriptable</a> aus dem App Store laden.</li>
+        <li><b>Skript kopieren</b> tippen.</li>
+        <li>In Scriptable oben auf <b>+</b>, einfügen, oben links den Namen auf <b>Vokabeln</b> ändern, <b>Fertig</b>.</li>
+        <li>Home-Bildschirm lange drücken → <b>+</b> → <b>Scriptable</b> → Größe wählen → Widget hinzufügen.</li>
+        <li>Widget lange drücken → <b>Widget bearbeiten</b> → bei Script <b>Vokabeln</b> wählen.</li></ol>
+      <div class="row" style="gap:10px"><button class="btn pri grow" data-act="widgetcopy">📋 Skript kopieren</button><button class="btn grow" data-act="widgetkey">Neuer Schlüssel</button></div>
+      <p class="small muted" style="margin:8px 0 0">„Neuer Schlüssel“ sperrt alle bisher kopierten Widgets – danach das Skript neu kopieren.</p>`
+      :`<button class="btn full" data-act="widgetkey">Widget einrichten</button>`}</div>`;
+}
+function newWidgetKey(){const a=new Uint8Array(24);crypto.getRandomValues(a);return btoa(String.fromCharCode(...a)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
+async function widgetKey(){
+  if(S.meta.widget&&S.meta.widget.key&&!(await confirmBox('Neuen Schlüssel erzeugen? Bereits eingerichtete Widgets zeigen dann „Schlüssel ungültig“, bis du das Skript neu kopierst.','Neu erzeugen')))return;
+  await Store.saveMeta('widget',{key:newWidgetKey(),at:Date.now()});widgetSrc=null;render();toast('Schlüssel erzeugt');
+}
+function widgetScript(){
+  const api=location.origin+'/api/heute?key='+encodeURIComponent(S.meta.widget.key);
+  return (widgetSrc||'').replace('__API__',api).replace('__APP__',location.origin+'/');
+}
+async function widgetCopy(){
+  if(!widgetSrc)return toast('Skript lädt noch – gleich nochmal tippen');
+  const t=widgetScript();
+  try{await navigator.clipboard.writeText(t);toast('Skript kopiert – jetzt in Scriptable einfügen')}
+  catch(e){openSheet(`<h3>Skript kopieren</h3><p class="small muted">Text markieren und kopieren:</p><textarea class="t" style="min-height:240px;font-size:12px">${esc(t)}</textarea><button class="btn full" style="margin-top:10px" data-x="close" onclick="closeSheet()">Fertig</button>`)}
 }
 
 /* ---------- Kenn ich schon? – schnell vorsortieren ---------- */
@@ -1516,6 +1614,11 @@ document.addEventListener('click',async e=>{
     case 'sortplay':{const it=S.sort&&S.sort.q[S.sort.idx];if(it)playWord(it.lid,it.w.id);break}
     case 'sortend':S.sort=null;Store.flushProgress();render();break;
     case 'topics':sheetTopics(S.view.lesson);break;
+    case 'pushon':pushOn();break;
+    case 'pushoff':pushOff();break;
+    case 'pushtest':pushTest();break;
+    case 'widgetkey':widgetKey();break;
+    case 'widgetcopy':widgetCopy();break;
     case 'start':if(S.setup.mode==='hear'){plUnlock();startPlayer(S.setup.lids.slice())}else startSession(Object.assign({},S.setup));break;
     case 'hear':plUnlock();startPlayer([v]);break;
     case 'hearrec':{plUnlock();const r=S.recs[v];if(r)startPlayer([r.lesson_key],v);break}
@@ -1582,6 +1685,7 @@ document.addEventListener('submit',e=>{
     Store.login($('#lmail').value.trim(),$('#lpw').value).catch(err=>{btn.disabled=false;$('#lerr').textContent=err&&err.status===400?'E-Mail oder Passwort falsch.':err&&err.status===429?'Zu viele Versuche – bitte ein paar Sekunden warten und nochmal.':'Anmeldung fehlgeschlagen ('+((err&&err.status)||err)+')'})}
 });
 document.addEventListener('change',async e=>{
+  if(e.target.dataset&&e.target.dataset.act==='pushtime')return pushTimes();
   const t=e.target;
   if(t.dataset.act==='addl'){S.addLid=t.value;return}
   if(t.dataset.act==='upload'&&t.files[0])return uploadRec(S.view.lesson,t.files[0]);
@@ -1607,6 +1711,7 @@ function addWord(){
 window.addEventListener('pagehide',()=>Store.flushProgress());
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')Store.flushProgress();else checkUpdate()});
 setTimeout(()=>checkUpdate(),3000);
+if('serviceWorker' in navigator)swReg(); // nur für Erinnerungen
 
 Store.init();
 </script>

@@ -5,6 +5,9 @@ Läuft neben PocketBase und erledigt zwei Aufgaben im Hintergrund:
   2. Lehrer-Aufnahmen: transkribiert neue MP3s mit Whisper (Wort-Zeitstempel),
      findet jede Vokabel der Stunde darin und speichert den Ausschnitt als Clip.
 
+  3. Tagesübersicht (für Widget und Erinnerungen) berechnen und tägliche
+     Push-Erinnerungen verschicken.
+
 Er spricht nur über die PocketBase-API mit dem Admin-Konto (aus der .env) und ist
 von außen nicht erreichbar.
 """
@@ -549,6 +552,214 @@ def rematch(pb):
                 log.info("Stunde %s: %d neue Wörter in vorhandener Aufnahme gefunden", fresh.get("name"), n)
 
 
+# ---------------------------------------------------------------- Tagesübersicht & Erinnerungen
+APP_TZ = os.environ.get("APP_TZ", "Europe/Berlin")
+DAY_MS = 86400000
+INTERVALS = [0, 1, 3, 7, 14, 30, 60, 120]
+
+
+def norm_en(s):
+    s = str(s or "").lower().replace("’", "'").replace("‘", "'").replace("`", "'")
+    s = re.sub(r"\(.*?\)", " ", s)
+    s = re.sub(r'[.,!?;:"…]', " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return re.sub(r"^(to|the|a|an) ", "", s)
+
+
+def _tz(name):
+    from zoneinfo import ZoneInfo
+    try:
+        return ZoneInfo(name or APP_TZ)
+    except Exception:
+        return ZoneInfo("Europe/Berlin")
+
+
+def compute_summary(lessons, progress, meta, tz_name=None, now=None, prev_wod=None):
+    """Spiegelt die Startseite der App: fällig, neu (Tageslimit), Serie, sicher, Wort des Tages."""
+    from datetime import datetime, timedelta
+    tz = _tz(tz_name)
+    now = now or datetime.now(tz)
+    now_ms = int(now.timestamp() * 1000)
+    day0 = int(now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000)
+    today = now.strftime("%Y-%m-%d")
+    settings_ = meta.get("settings") or {}
+    try:
+        per_day = int(settings_.get("newPerDay", 10))
+    except (TypeError, ValueError):
+        per_day = 10
+    # neueste Stunden zuerst (wie in der App)
+    lessons = sorted(lessons, key=lambda l: (l.get("date") or "", l.get("order") or 0), reverse=True)
+    due = sure = total = 0
+    new_keys, today_keys, pool = [], set(), []
+    seen_new = set()
+    for l in lessons:
+        pw = (progress.get(l.get("key")) or {})
+        for w in l.get("words") or []:
+            if w.get("kind") == "note":
+                continue
+            total += 1
+            p = pw.get(w.get("id")) or {}
+            n = p.get("n") or 0
+            k = norm_en(w.get("en"))
+            if n and (p.get("d") or 0) <= now_ms:
+                due += 1
+            if n and (p.get("b") or 0) >= 4:
+                sure += 1
+            if not n and k not in seen_new:
+                seen_new.add(k)
+                new_keys.append(k)
+            if p.get("f") and p["f"] >= day0:
+                today_keys.add(k)
+            if len(tts_text(w.get("en")).split()) <= 4 and (p.get("b") or 0) < 4 and w.get("en") and w.get("de"):
+                pool.append((l, w))
+    quota = max(0, per_day - len(today_keys)) if per_day > 0 else len(new_keys)
+    new_today = min(len(new_keys), quota)
+    days = set((meta.get("stats") or {}).get("days") or [])
+    practiced = today in days
+    streak, d = 0, now.date()
+    if not practiced:
+        d -= timedelta(days=1)
+    while d.strftime("%Y-%m-%d") in days:
+        streak += 1
+        d -= timedelta(days=1)
+    wod = prev_wod if prev_wod and prev_wod.get("date") == today else None
+    if not wod and pool:
+        l, w = pool[int(hashlib.sha1(today.encode()).hexdigest(), 16) % len(pool)]
+        wod = {"date": today, "en": w.get("en"), "de": w.get("de"), "ex": (w.get("ex") or "").replace("[", "").replace("]", ""),
+               "lesson": l.get("name")}
+    return {"date": today, "due": due, "new": new_today, "today": due + new_today, "streak": streak,
+            "practicedToday": practiced, "sure": sure, "total": total, "wod": wod}
+
+
+def load_state(pb):
+    lessons = pb.full_list("lessons")
+    progress = {r["key"]: (r.get("w") or {}) for r in pb.full_list("progress")}
+    meta = {r["key"]: (r.get("data") or {}) for r in pb.full_list("meta")}
+    ids = {r["key"]: r["id"] for r in pb.full_list("meta")}
+    return lessons, progress, meta, ids
+
+
+def save_meta(pb, ids, key, data):
+    if key in ids:
+        pb.req("PATCH", f"/api/collections/meta/records/{ids[key]}", json={"data": data})
+    else:
+        r = pb.req("POST", "/api/collections/meta/records", json={"key": key, "data": data})
+        ids[key] = r["id"]
+
+
+VAPID_FILE = os.path.join(MODELS, "vapid_private.pem")
+
+
+def vapid_public():
+    """VAPID-Schlüsselpaar für Web-Push: einmal erzeugen, im Modelle-Ordner aufheben."""
+    from py_vapid import Vapid, b64urlencode
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+    if os.path.exists(VAPID_FILE):
+        v = Vapid.from_file(VAPID_FILE)
+    else:
+        os.makedirs(os.path.dirname(VAPID_FILE), exist_ok=True)
+        v = Vapid()
+        v.generate_keys()
+        v.save_key(VAPID_FILE)
+        log.info("Neue Schlüssel für Push-Mitteilungen erzeugt")
+    return b64urlencode(v.public_key.public_bytes(Encoding.X962, PublicFormat.UncompressedPoint))
+
+
+def push_contact():
+    c = os.environ.get("PUSH_CONTACT") or os.environ.get("APP_OPERATOR_CONTACT") or PB_EMAIL
+    return c if c.startswith(("mailto:", "https://")) else "mailto:" + c
+
+
+def send_push(sub, payload):
+    """True = zugestellt, False = Abo ungültig (löschen), Exception = sonstiger Fehler."""
+    from pywebpush import webpush, WebPushException
+    try:
+        webpush(subscription_info=sub, data=json.dumps(payload, ensure_ascii=False), vapid_private_key=VAPID_FILE,
+                vapid_claims={"sub": push_contact()}, ttl=4 * 3600, timeout=20)
+        return True
+    except WebPushException as e:
+        code = getattr(e.response, "status_code", None)
+        if code in (404, 410):
+            return False
+        raise
+
+
+def reminder_text(s, test=False):
+    n = s["today"]
+    if test:
+        title = "Test: so sieht deine Erinnerung aus"
+    elif s["streak"]:
+        title = f"🔥 {s['streak']} {'Tag' if s['streak'] == 1 else 'Tage'} in Folge – mach weiter!"
+    else:
+        title = "Zeit für Englisch 📚"
+    body = f"{n} {'Wort wartet' if n == 1 else 'Wörter warten'} auf dich." if n else "Heute ist nichts fällig – Zeit für ein paar neue Wörter?"
+    if s.get("wod"):
+        body += f"\nWort des Tages: {s['wod']['en']} = {s['wod']['de']}"
+    return {"title": title, "body": body, "url": "/"}
+
+
+def due_slots(times, last, now):
+    """Erinnerungszeiten, die heute dran sind (bis 60 Min. nach der Uhrzeit, nur einmal pro Tag)."""
+    out = []
+    today = now.strftime("%Y-%m-%d")
+    mins = now.hour * 60 + now.minute
+    for t in times or []:
+        try:
+            h, m = (int(x) for x in str(t).split(":"))
+        except ValueError:
+            continue
+        if 0 <= mins - (h * 60 + m) <= 60 and (last or {}).get(t) != today:
+            out.append(t)
+    return out
+
+
+def push_pass(pb):
+    from datetime import datetime
+    lessons, progress, meta, ids = load_state(pb)
+    pub = vapid_public()
+    if (meta.get("push") or {}).get("publicKey") != pub:
+        save_meta(pb, ids, "push", {"publicKey": pub})
+    s = compute_summary(lessons, progress, meta, prev_wod=(meta.get("summary") or {}).get("wod"))
+    old = dict(meta.get("summary") or {})
+    old.pop("updated", None)
+    if old != s:  # nur bei Änderung schreiben (jede Änderung erreicht die App live)
+        save_meta(pb, ids, "summary", dict(s, updated=int(time.time() * 1000)))
+    for sub in pb.full_list("push"):
+        now = datetime.now(_tz(sub.get("tz")))
+        st = compute_summary(lessons, progress, meta, sub.get("tz"), now, s.get("wod"))
+        last = dict(sub.get("last") or {})
+        msgs = []
+        if sub.get("test"):
+            msgs.append(reminder_text(st, test=True))
+        for t in due_slots(sub.get("times"), last, now):
+            last[t] = now.strftime("%Y-%m-%d")
+            if not st["practicedToday"]:
+                msgs.append(reminder_text(st))
+        if not msgs and last == (sub.get("last") or {}):
+            continue
+        ok = True
+        for m in msgs:
+            ok = send_push(sub.get("sub"), m)
+            log.info("Erinnerung %s: %s", "verschickt" if ok else "nicht zustellbar – Abo gelöscht", m["title"])
+            if not ok:
+                break
+        if ok:
+            pb.req("PATCH", f"/api/collections/push/records/{sub['id']}", json={"last": last, "test": False})
+        else:
+            pb.req("DELETE", f"/api/collections/push/records/{sub['id']}")
+
+
+def push_loop():
+    pb = PB()
+    while True:
+        tick("erinnerung")
+        try:
+            push_pass(pb)
+        except Exception as e:
+            log.exception("Fehler bei Tagesübersicht/Erinnerung: %s", e)
+        time.sleep(int(os.environ.get("PUSH_INTERVAL", "30")))
+
+
 def find_lesson(pb, key):
     items = pb.full_list("lessons", pb_filter_eq("key", key.replace("'", "")))
     return items[0] if items else None
@@ -556,8 +767,9 @@ def find_lesson(pb, key):
 
 if __name__ == "__main__":
     log.info("Worker startet (Whisper: %s, Stimmen: %s)%s", WHISPER_MODEL, VOICES, " [FAKE]" if FAKE else "")
-    for name in ("tts", "aufnahmen", "aussprache"):
+    for name in ("tts", "aufnahmen", "aussprache", "erinnerung"):
         tick(name)
+    threading.Thread(target=push_loop, daemon=True).start()
     threading.Thread(target=tts_loop, daemon=True).start()
     threading.Thread(target=attempt_loop, daemon=True).start()
     threading.Thread(target=watchdog, daemon=True).start()
