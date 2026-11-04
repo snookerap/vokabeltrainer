@@ -138,7 +138,7 @@ details summary{cursor:pointer;font-weight:700;padding:6px 0}
 <script src="pocketbase.umd.js"></script>
 <script>
 'use strict';
-const APP_VERSION='1.13.0 (03.11.2026)';
+const APP_VERSION='1.13.1 (04.11.2026)';
 /* ---------- helpers ---------- */
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
@@ -257,10 +257,12 @@ function getBuf(rec,field){
   return bufCache[k];
 }
 function stopAudio(){try{curSrc&&curSrc.stop()}catch(e){}curSrc=null;try{elAudio&&elAudio.pause()}catch(e){}try{speechSynthesis.cancel()}catch(e){}}
+// resume() kann auf iOS ohne Tippen ewig hängen – deshalb mit Zeitgrenze
+const tryResume=c=>Promise.race([c.resume().catch(()=>{}),new Promise(r=>setTimeout(r,400))]);
 async function playBuf(buf,s,e){
   let c=actx();stopAudio();
-  if(c.state!=='running'){try{await c.resume()}catch(x){}}
-  if(c.state!=='running'){try{c.close()}catch(x){}ctx=null;c=actx();try{await c.resume()}catch(x){}} // iOS: "interrupted" nach Mikrofon -> neu aufbauen
+  if(c.state!=='running')await tryResume(c);
+  if(c.state!=='running'){try{c.close()}catch(x){}ctx=null;c=actx();await tryResume(c)} // iOS: "interrupted" nach Mikrofon -> neu aufbauen
   if(c.state!=='running')throw new Error('Audio blockiert (Status: '+c.state+')');
   const src=c.createBufferSource();src.buffer=buf;src.connect(c.destination);
   if(s==null)src.start(0);else src.start(0,s,Math.max(.15,e-s));curSrc=src;
@@ -274,7 +276,13 @@ function speakBrowser(text){
 function clipOf(w){const c=w&&w.clip;return c&&S.recs[c.rec]&&!w.noClip?c:null}
 function ttsOf(w){return w?S.tts[set().voice+'|'+ttsText(w.en)]||null:null}
 function hasClip(l,w){return !!clipOf(w)}
-let elAudio=null,elTimer=null;
+let elAudio=null,elTimer=null,elUnlocked=false;
+// Bei jedem Tippen: Audio wach halten (iOS stellt es sonst still) und das Ausweich-Audio freischalten
+function keepAudioAlive(){
+  if(ctx&&ctx.state!=='running'&&ctx.state!=='closed'){try{ctx.resume()}catch(e){}}
+  if(!elUnlocked){elUnlocked=true;try{if(!elAudio)elAudio=new Audio();elAudio.src=SILENT;const p=elAudio.play();if(p)p.then(()=>elAudio.pause()).catch(()=>{elUnlocked=false})}catch(e){elUnlocked=false}}
+}
+['touchend','pointerup','keydown'].forEach(t=>document.addEventListener(t,keepAudioAlive,{capture:true,passive:true}));
 async function playElement(rec,field,s,e){ // Ausweichweg ohne Web Audio
   stopAudio();const url=await Store.fileUrl(rec,field);if(!elAudio)elAudio=new Audio();elAudio.src=url;
   await new Promise((res,rej)=>{elAudio.onloadedmetadata=res;elAudio.onerror=()=>rej(new Error('Audio-Datei lädt nicht'));elAudio.load()});
@@ -289,7 +297,9 @@ function playWord(lid,wid,which){
   const l=S.lessons[lid];const w=l&&l.words.find(x=>x.id===wid);if(!w)return;actx();
   const useT=which==='teacher'?!!clipOf(w):which==='ai'?false:(set().prefer==='teacher'&&!!clipOf(w));
   const p=useT?playTeacher(w):playAI(w);
-  p.catch(e=>{console.warn(e);toast('Audio-Fehler: '+(e.message||e),'err');speakBrowser(w.en)});
+  p.catch(e=>{console.warn(e);
+    if(e&&(e.name==='NotAllowedError'||/blockiert/.test(e.message||'')))return toast('Zum Abspielen kurz auf 🔈 tippen');
+    toast('Audio-Fehler: '+(e.message||e),'err');speakBrowser(w.en)});
 }
 function otherVoice(w){const pref=set().prefer;if(pref==='teacher'&&clipOf(w))return 'ai';if(clipOf(w))return 'teacher';return null}
 
@@ -426,8 +436,13 @@ function mkItem(i,cfg){
   return {lid:i.lid,wid:i.w.id,dir,type,clip};
 }
 function curWord(it){const l=S.lessons[it.lid];return l&&l.words.find(w=>w.id===it.wid)}
+// im Tippen aufrufen: läuft die Audioausgabe nicht (iOS nach Sperre/Player/Mikrofon), frisch aufbauen
+function freshAudio(){
+  if(ctx&&ctx.state!=='running'){try{ctx.close()}catch(e){}ctx=null}
+  keepAudioAlive();return actx();
+}
 function startSession(cfg){
-  actx();const s=buildSession(cfg);
+  freshAudio();const s=buildSession(cfg);
   if(!s.q.length){toast(cfg.focus==='due'?'Nichts fällig – wähle „Alle“':cfg.mode==='cloze'?'Keine Wörter mit Beispielsatz in dieser Auswahl':'Keine passenden Wörter');return}
   S.ses=s;S.tab='practice';
   const s2=set();if(s2.mode!==cfg.mode||s2.dir!==cfg.dir||s2.len!==cfg.len||s2.focus!==cfg.focus)Store.saveMeta('settings',Object.assign(s2,{mode:cfg.mode,dir:cfg.dir,len:cfg.len,focus:cfg.focus}));
@@ -967,7 +982,7 @@ ${ws.map(w=>`${w.id}: ${ttsText(w.en)} (= ${w.de})`).join('\n')}`;
 function startSort(){
   const q=newByPriority(allItems(lessonsSorted().map(l=>l.id))).filter(i=>!(i.p&&i.p.q));
   if(!q.length)return toast('Keine ungeübten Wörter zum Vorsortieren');
-  actx();S.sort={q,idx:0,hist:[],known:0,show:false};render();
+  freshAudio();S.sort={q,idx:0,hist:[],known:0,show:false};render();
 }
 function sortMark(know){
   const s=S.sort;const it=s.q[s.idx];if(!it)return;const now=Date.now();const cur=prog(it.lid,it.w.id)||{b:0,n:0,l:0};
