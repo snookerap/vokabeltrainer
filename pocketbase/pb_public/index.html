@@ -143,7 +143,7 @@ details summary{cursor:pointer;font-weight:700;padding:6px 0}
 <script src="pocketbase.umd.js"></script>
 <script>
 'use strict';
-const APP_VERSION='1.15.1 (04.11.2026)';
+const APP_VERSION='1.16.0 (04.11.2026)';
 /* ---------- helpers ---------- */
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
@@ -489,18 +489,19 @@ function endSession(){stopRec();stopAudio();Store.flushProgress();flushStats();S
 
 /* ---------- rendering ---------- */
 const app=$('#app');
-function softRender(){if(S.ses||S.player||S.sort||$('.scrim'))return;render()}
+function softRender(){if(S.ses||S.player||S.sort||S.probe||$('.scrim'))return;render()}
 function render(){
   const keep={};let focusId=null,selS=0,selE=0;
   $$('input[id],textarea[id],select[id]',app).forEach(e=>{if(e.type!=='file')keep[e.id]=e.value});
   const ae=document.activeElement;if(ae&&ae.id&&app.contains(ae)){focusId=ae.id;try{selS=ae.selectionStart;selE=ae.selectionEnd}catch(e){}}
-  $('#tabs').hidden=!S.ready||!!S.ses||!!S.player||!!S.sort||!!S.error;document.body.classList.toggle('in-ses',!!(S.ses||S.player||S.sort));
+  $('#tabs').hidden=!S.ready||!!S.ses||!!S.player||!!S.sort||!!S.probe||!!S.error;document.body.classList.toggle('in-ses',!!(S.ses||S.player||S.sort||S.probe));
   $$('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===S.tab));
   if(S.needLogin){$('#tabs').hidden=true;app.innerHTML=viewLogin();return}
   if(S.error){app.innerHTML=viewError();return}
   if(!S.ready){app.innerHTML='<div class="center pad muted">Lade deine Vokabeln …</div>';return}
   let html='';
   if(S.sort)html=viewSort();
+  else if(S.probe)html=viewProbe();
   else if(S.player)html=viewPlayer();
   else if(S.ses)html=viewSession();
   else if(S.tab==='home')html=viewHome();
@@ -705,6 +706,7 @@ function viewLesson(id){
   const l=S.lessons[id];const c=counts([id]);const words=l.words||[];const withClip=words.filter(w=>clipOf(w)).length;const recs=recsFor(id);
   return `<div class="top"><button class="btn icon ghost" data-act="back" aria-label="Zurück">‹</button><div class="grow"><h2>${esc(l.name)}</h2><div class="sub">${c.tot} Wörter · ${c.s} sicher · ${c.l} am Lernen · ${c.nw} neu</div></div><button class="btn icon" data-act="editlesson" aria-label="Stunde bearbeiten">✎</button></div>
   <div class="row" style="margin-bottom:12px"><button class="btn pri grow" data-act="practicelesson">Üben</button><button class="btn grow" data-act="addto">+ Wort</button></div>
+  ${(()=>{const n=sortItems(id).length;return n?`<div class="row" style="margin-bottom:12px;gap:10px"><button class="btn grow" data-act="lessonsort">✓ Als gekannt markieren</button>${n>=5?`<button class="btn grow" data-act="probe">🎯 Stichprobe</button>`:''}</div>`:''})()}
   <div class="row" style="margin-bottom:12px;gap:10px"><button class="btn grow" data-act="claude">💬 Mit Claude üben</button>${words.some(needsTopic)?`<button class="btn grow" data-act="topics">🏷️ Themen holen (${words.filter(needsTopic).length})</button>`:''}${words.some(needsExample)?`<button class="btn grow" data-act="examples">✍️ Sätze holen (${words.filter(needsExample).length})</button>`:''}</div>
   <div class="card"><h3>🎧 Aufnahme vom Lehrer</h3>
     <div class="small muted">${recs.length?`${withClip} von ${words.length} Wörtern haben einen Lehrer-Clip.`:'Lade hier die MP3 vom Ende der Stunde hoch. Whisper schneidet daraus automatisch jedes Wort.'}</div>
@@ -1132,37 +1134,122 @@ async function widgetCopy(){
 }
 
 /* ---------- Kenn ich schon? – schnell vorsortieren ---------- */
-function startSort(){
-  const q=newByPriority(allItems(lessonsSorted().map(l=>l.id))).filter(i=>!(i.p&&i.p.q));
-  if(!q.length)return toast('Keine ungeübten Wörter zum Vorsortieren');
-  freshAudio();S.sort={q,idx:0,hist:[],known:0,show:false};render();
+const SORT_PAGE=20;
+const knownProg=()=>{const now=Date.now();return {b:5,n:1,l:0,s:now,d:startOfDay(now)+INT[5]*DAY,k:1}}; // kommt in 30 Tagen zur Kontrolle
+// alle Stunden: noch nie geübte Wörter (neueste Stunden zuerst) · eine Stunde: alle noch nicht sicheren
+function sortItems(lid){
+  if(!lid)return newByPriority(allItems(lessonsSorted().map(l=>l.id))).filter(i=>!(i.p&&i.p.q));
+  const seen=new Set();return allItems([lid]).filter(i=>!isNote(i.w)&&status(i.p)!=='s').filter(i=>{const k=wkey(i.w);if(seen.has(k))return false;seen.add(k);return true});
+}
+function startSort(opt={}){
+  const q=sortItems(opt.lid);
+  if(!q.length)return toast(opt.lid?'In dieser Stunde ist schon alles sicher':'Keine ungeübten Wörter zum Vorsortieren');
+  freshAudio();
+  S.sort={q,idx:0,hist:[],known:0,show:false,mode:opt.lid?'list':(set().sortMode||'list'),lid:opt.lid||null,sel:new Set(),pageSize:opt.lid?q.length:SORT_PAGE};
+  if(opt.lid)q.forEach((_,i)=>S.sort.sel.add(i)); // ganze Stunde: alles vormarkiert, nur Unbekanntes abwählen
+  render();
 }
 function sortMark(know){
-  const s=S.sort;const it=s.q[s.idx];if(!it)return;const now=Date.now();const cur=prog(it.lid,it.w.id)||{b:0,n:0,l:0};
-  const p=know?{b:5,n:1,l:0,s:now,d:startOfDay(now)+INT[5]*DAY,k:1}:Object.assign({},cur,{q:1});
-  s.hist.push({touched:setProg(it.lid,it.w.id,p),know});if(know)s.known++;s.idx++;s.show=false;render();
+  const s=S.sort;const it=s.q[s.idx];if(!it)return;const cur=prog(it.lid,it.w.id)||{b:0,n:0,l:0};
+  const p=know?knownProg():Object.assign({},cur,{q:1});
+  s.hist.push({touched:setProg(it.lid,it.w.id,p),known:know?1:0,count:1});if(know)s.known++;s.idx++;s.show=false;render();
+}
+function sortApply(){
+  const s=S.sort;const end=Math.min(s.q.length,s.idx+s.pageSize);const touched=[];let k=0;const sel=[];
+  for(let i=s.idx;i<end;i++){const it=s.q[i];const cur=prog(it.lid,it.w.id)||{b:0,n:0,l:0};
+    if(s.sel.has(i)){touched.push(...setProg(it.lid,it.w.id,knownProg()));k++;sel.push(i)}
+    else if(!s.lid)touched.push(...setProg(it.lid,it.w.id,Object.assign({},cur,{q:1})));}
+  s.hist.push({touched,known:k,count:end-s.idx,sel});s.known+=k;s.idx=end;s.sel=new Set();render();
+  const el=$('.ses');if(el)el.scrollTop=0;
 }
 function sortUndo(){
   const s=S.sort;const h=s.hist.pop();if(!h)return;
-  for(const [lid,wid,old] of h.touched){if(old)S.progress[lid].w[wid]=old;else delete S.progress[lid].w[wid];Store.saveProgress(lid)}
-  if(h.know)s.known--;s.idx--;s.show=false;render();
+  for(const [lid,wid,old] of h.touched.slice().reverse()){if(old)S.progress[lid].w[wid]=old;else delete S.progress[lid].w[wid];Store.saveProgress(lid)}
+  s.known-=h.known;s.idx-=h.count;s.sel=new Set(h.sel||[]);s.show=false;render();
+}
+function sortDone(s){
+  Store.flushProgress();const done=s.idx;
+  return `<div class="ses"><div class="spacer"></div><div class="qcard"><div class="lbl">Fertig</div><div class="q">${done} Wörter sortiert</div>
+    <div class="x">${s.known} kanntest du schon – die kommen erst in 30 Tagen zur Kontrolle wieder.${s.lid?'':` ${done-s.known} lernst du nach und nach über das Tageslimit.`}</div></div>
+    <div class="spacer"></div><button class="btn pri full" data-act="sortend">Zurück</button>
+    ${s.hist.length?`<button class="btn ghost full" style="margin-top:8px" data-act="sortundo">↶ Letzten Schritt zurücknehmen</button>`:''}</div>`;
+}
+function sortHead(s){
+  const l=s.lid&&S.lessons[s.lid];
+  return `<div class="row" style="padding:14px 0 4px"><button class="btn icon ghost" data-act="sortend" aria-label="Beenden">✕</button><div class="prog"><i style="width:${s.idx/s.q.length*100}%"></i></div><span class="small muted">${s.idx}/${s.q.length}</span></div>
+    <div class="row" style="margin:4px 0 8px"><div class="small muted grow">${s.known} gekannt${l?' · '+esc(l.name):''}</div>
+    ${s.lid?'':`<div class="seg" style="width:170px">${[['list','☰ Liste'],['card','🃏 Karten']].map(([v,t])=>`<button data-act="sortmode" data-v="${v}" class="${s.mode===v?'on':''}" style="min-height:34px;padding:4px">${t}</button>`).join('')}</div>`}</div>`;
 }
 function viewSort(){
-  const s=S.sort;const it=s.q[s.idx];const done=s.idx;
-  if(!it){Store.flushProgress();return `<div class="ses"><div class="spacer"></div><div class="qcard"><div class="lbl">Fertig</div><div class="q">${done} Wörter sortiert</div>
-    <div class="x">${s.known} kanntest du schon – die kommen erst in 30 Tagen zur Kontrolle wieder. ${done-s.known} lernst du nach und nach über das Tageslimit.</div></div>
-    <div class="spacer"></div><button class="btn pri full" data-act="sortend">Zurück</button></div>`}
-  const w=it.w;const l=S.lessons[it.lid];
-  return `<div class="ses">
-    <div class="row" style="padding:14px 0 4px"><button class="btn icon ghost" data-act="sortend" aria-label="Beenden">✕</button><div class="prog"><i style="width:${done/s.q.length*100}%"></i></div><span class="small muted">${done}/${s.q.length}</span></div>
-    <div class="small muted center">${s.known} gekannt · ${esc(l?l.name:'')}${w.topic&&TOPIC[w.topic]?' · '+TOPIC[w.topic].icon+' '+esc(TOPIC[w.topic].name):''}</div>
+  const s=S.sort;if(s.idx>=s.q.length)return sortDone(s);
+  return s.mode==='list'?viewSortList(s):viewSortCard(s);
+}
+function viewSortList(s){
+  const end=Math.min(s.q.length,s.idx+s.pageSize);let rows='',lastLid=null;const nSel=[...s.sel].filter(i=>i>=s.idx&&i<end).length,n=end-s.idx;
+  const left={};for(let i=s.idx;i<s.q.length;i++){const lid=s.q[i].lid;left[lid]=(left[lid]||0)+1}
+  for(let i=s.idx;i<end;i++){const it=s.q[i];
+    if(it.lid!==lastLid){lastLid=it.lid;const l=S.lessons[it.lid];rows+=`<div class="small" style="padding:10px 14px 4px;font-weight:700;color:var(--muted);background:var(--soft)">${esc(l?l.name:'')} · ${left[it.lid]} ${left[it.lid]===1?'Wort':'Wörter'}</div>`}
+    const on=s.sel.has(i);
+    rows+=`<button class="li" data-act="sorttoggle" data-v="${i}" style="min-height:52px;${on?'background:var(--ok-soft)':''}"><span style="font-size:20px;width:24px;flex:none">${on?'✅':'⬜️'}</span><span class="grow" style="min-width:0"><div class="en">${esc(it.w.en)}</div><div class="de">${esc(it.w.de)}</div></span></button>`}
+  return `<div class="ses">${sortHead(s)}
+    <p class="small muted" style="margin:0 0 8px">${s.lid?'Alle Wörter sind markiert – tippe die an, die du <b>noch nicht</b> kannst.':'Tippe alle an, die du <b>schon kannst</b>. Die übrigen lernst du nach und nach.'}</p>
+    <div class="row" style="gap:8px;margin-bottom:8px"><button class="btn grow" style="min-height:42px" data-act="sortall">✅ Alle</button><button class="btn grow" style="min-height:42px" data-act="sortnone">⬜️ Keine</button></div>
+    <div class="list">${rows}</div>
+    <div style="position:sticky;bottom:0;background:var(--bg);padding:8px 0 4px">
+      <button class="btn pri full" style="min-height:56px" data-act="sortapply">Übernehmen · ${nSel} gekannt${s.lid?'':`, ${n-nSel} lernen`}</button>
+      <div class="row" style="margin-top:6px"><button class="btn ghost" data-act="sortundo" ${s.hist.length?'':'disabled'}>↶ Zurück</button><div class="grow"></div><button class="btn ghost" data-act="sortend">Fertig</button></div></div>
+  </div>`;
+}
+function viewSortCard(s){
+  const it=s.q[s.idx];const w=it.w;
+  return `<div class="ses">${sortHead(s)}
     <div class="spacer"></div>
-    <div class="qcard"><div class="lbl">Kennst du das?</div><div class="q">${esc(w.en)}</div>
+    <div class="qcard" id="sortcard" style="touch-action:pan-y;user-select:none"><div class="lbl">Kennst du das?</div><div class="q">${esc(w.en)}</div>
       ${s.show?`<div class="a">${esc(w.de)}</div>`:`<button class="btn ghost" style="margin-top:10px" data-act="sortshow">Bedeutung zeigen</button>`}
       <div style="margin-top:10px"><button class="btn icon" data-act="sortplay" aria-label="Anhören">🔈</button></div></div>
+    <p class="small muted center" style="margin:0">← wischen: lernen · wischen →: kenn ich</p>
     <div class="spacer"></div>
     <div class="row" style="gap:10px"><button class="btn grow" style="min-height:60px" data-act="sortlearn">📚 Lernen</button><button class="btn pri grow" style="min-height:60px" data-act="sortknow">✓ Kenn ich</button></div>
     <div class="row" style="margin-top:10px"><button class="btn ghost" data-act="sortundo" ${s.hist.length?'':'disabled'}>↶ Zurück</button><div class="grow"></div><button class="btn ghost" data-act="sortend">Fertig</button></div>
+  </div>`;
+}
+// Karte wischen: rechts = kenn ich, links = lernen
+function swipeable(el,onLeft,onRight){
+  let x0=null,dx=0;
+  el.addEventListener('pointerdown',e=>{if(e.target.closest('button'))return;x0=e.clientX;dx=0;try{el.setPointerCapture(e.pointerId)}catch(x){}el.style.transition='none'});
+  el.addEventListener('pointermove',e=>{if(x0==null)return;dx=e.clientX-x0;el.style.transform=`translateX(${dx}px) rotate(${dx/30}deg)`;el.style.background=dx>50?'var(--ok-soft)':dx<-50?'var(--soft)':''});
+  const end=()=>{if(x0==null)return;x0=null;el.style.transition='transform .18s';
+    if(dx>90){el.style.transform='translateX(130%) rotate(8deg)';setTimeout(onRight,160)}
+    else if(dx<-90){el.style.transform='translateX(-130%) rotate(-8deg)';setTimeout(onLeft,160)}
+    else{el.style.transform='';el.style.background=''}};
+  el.addEventListener('pointerup',end);el.addEventListener('pointercancel',end);
+}
+
+/* ---------- Stichprobe: 5 Wörter einer Stunde – alle gewusst? Dann ganze Stunde als gekannt ---------- */
+function startProbe(lid){
+  const pool=sortItems(lid);if(pool.length<5)return toast('Zu wenige Wörter für eine Stichprobe');
+  freshAudio();S.probe={lid,items:shuffle(pool).slice(0,5),idx:0,ok:[],show:false,done:false};render();
+}
+function probeAnswer(know){const p=S.probe;p.ok.push(know);if(know){const it=p.items[p.idx];setProg(it.lid,it.w.id,knownProg())}p.idx++;p.show=false;render()}
+function probeAll(){const p=S.probe;let n=0;for(const it of sortItems(p.lid)){setProg(it.lid,it.w.id,knownProg());n++}Store.flushProgress();S.probe=null;render();toast(`${n} weitere Wörter als gekannt markiert`)}
+function viewProbe(){
+  const p=S.probe;const l=S.lessons[p.lid];
+  if(p.idx>=p.items.length){const k=p.ok.filter(Boolean).length;const rest=sortItems(p.lid).length;Store.flushProgress();
+    return `<div class="ses"><div class="spacer"></div><div class="qcard"><div class="lbl">Stichprobe · ${esc(l?l.name:'')}</div><div class="q">${k} von ${p.items.length} gewusst${k===p.items.length?' 🎉':''}</div>
+      <div class="x">${k===p.items.length?(rest?`Die übrigen ${rest} Wörter dieser Stunde auch als gekannt markieren? Sie kommen in 30 Tagen zur Kontrolle.`:'Alle Wörter dieser Stunde sind jetzt markiert.'):`Da ist noch einiges neu – geh die Stunde lieber in der Liste durch und markiere nur, was du kannst.`}</div></div>
+      <div class="spacer"></div>
+      ${k===p.items.length&&rest?`<button class="btn pri full" data-act="probeall">✓ Ganze Stunde markieren (${rest})</button>`:k<p.items.length?`<button class="btn pri full" data-act="probelist">☰ Stunde in der Liste durchgehen</button>`:''}
+      <button class="btn full" style="margin-top:8px" data-act="probeend">${k===p.items.length&&rest?'Nein, nur die 5 übernehmen':'Fertig'}</button></div>`}
+  const it=p.items[p.idx];const w=it.w;
+  return `<div class="ses">
+    <div class="row" style="padding:14px 0 4px"><button class="btn icon ghost" data-act="probeend" aria-label="Beenden">✕</button><div class="prog"><i style="width:${p.idx/p.items.length*100}%"></i></div><span class="small muted">${p.idx+1}/${p.items.length}</span></div>
+    <div class="small muted center">🎯 Stichprobe · ${esc(l?l.name:'')}</div>
+    <div class="spacer"></div>
+    <div class="qcard"><div class="lbl">Kennst du das?</div><div class="q">${esc(w.en)}</div>
+      ${p.show?`<div class="a">${esc(w.de)}</div>`:`<button class="btn ghost" style="margin-top:10px" data-act="probeshow">Bedeutung zeigen</button>`}
+      <div style="margin-top:10px"><button class="btn icon" data-act="probeplay" aria-label="Anhören">🔈</button></div></div>
+    <div class="spacer"></div>
+    <div class="row" style="gap:10px"><button class="btn grow" style="min-height:60px" data-act="probeans" data-v="0">✗ Weiß ich nicht</button><button class="btn pri grow" style="min-height:60px" data-act="probeans" data-v="1">✓ Kenn ich</button></div>
   </div>`;
 }
 
@@ -1627,6 +1714,7 @@ function newLesson(date,name){
 /* ---------- events ---------- */
 function mount(){
   if(S.player){plCur=-1;plTick()}
+  const sc=$('#sortcard');if(sc)swipeable(sc,()=>sortMark(false),()=>sortMark(true));
   const wr=$('#wr');if(wr)setTimeout(()=>wr.focus(),50);
   const nb=$('#nextbtn');if(nb)setTimeout(()=>nb.focus(),50);
   const aen=$('#aen');if(aen){const f=()=>dupHint();aen.oninput=f;$('#ade').oninput=f}
@@ -1669,6 +1757,19 @@ document.addEventListener('click',async e=>{
     case 'sortshow':if(S.sort){S.sort.show=true;render()}break;
     case 'sortplay':{const it=S.sort&&S.sort.q[S.sort.idx];if(it)playWord(it.lid,it.w.id);break}
     case 'sortend':S.sort=null;Store.flushProgress();render();break;
+    case 'sorttoggle':{const i=+v;const sel=S.sort.sel;if(sel.has(i))sel.delete(i);else sel.add(i);const y=$('.ses').scrollTop;render();$('.ses').scrollTop=y;break}
+    case 'sortall':{const s=S.sort;for(let i=s.idx;i<Math.min(s.q.length,s.idx+s.pageSize);i++)s.sel.add(i);const y=$('.ses').scrollTop;render();$('.ses').scrollTop=y;break}
+    case 'sortnone':{const s=S.sort;for(let i=s.idx;i<s.idx+s.pageSize;i++)s.sel.delete(i);const y=$('.ses').scrollTop;render();$('.ses').scrollTop=y;break}
+    case 'sortapply':sortApply();break;
+    case 'sortmode':{S.sort.mode=v;S.sort.show=false;const st=set();if(st.sortMode!==v){st.sortMode=v;Store.saveMeta('settings',st)}render();break}
+    case 'lessonsort':startSort({lid:S.view.lesson});break;
+    case 'probe':startProbe(S.view.lesson);break;
+    case 'probeans':probeAnswer(v==='1');break;
+    case 'probeshow':S.probe.show=true;render();break;
+    case 'probeplay':{const it=S.probe.items[S.probe.idx];if(it)playWord(it.lid,it.w.id);break}
+    case 'probeall':probeAll();break;
+    case 'probelist':{const lid=S.probe.lid;S.probe=null;startSort({lid});break}
+    case 'probeend':S.probe=null;Store.flushProgress();render();break;
     case 'topics':sheetTopics(S.view.lesson);break;
     case 'pushon':pushOn();break;
     case 'pushoff':pushOff();break;

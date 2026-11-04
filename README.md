@@ -97,7 +97,11 @@ Ein selbst gehosteter Vokabeltrainer fürs Handy, gemacht für Englischkurse: Vo
 
 - **KI-Stimme (Piper)** für jedes Wort, erzeugt auf deinem Server. 7 frei lizenzierte Stimmen zur Wahl (britisch/amerikanisch, weiblich/männlich) mit **Hörprobe**. Beim Üben bevorzugt *Lehrer* oder *KI* – der zweite Knopf spielt jeweils die andere Stimme.
 - **🏷️ Themen** (Technik & Kabel, Vertrieb & Kunden, Meetings, Zahlen & Wirtschaft, Reisen, Sport & Freizeit, Gefühle & Charakter, Gesellschaft, Alltag, Sätze & Grammatik): beim Üben filtern; neue Stunden per **„Themen holen“** über Claude zuordnen.
-- **⚡ Kenn ich schon?** Große Wortbestände schnell vorsortieren: *Kenn ich* (kommt erst in 30 Tagen zur Kontrolle) oder *Lernen*. Mit „Zurück“ für Fehltipps.
+- **⚡ Kenn ich schon?** Große Wortbestände schnell vorsortieren – nach Stunden gruppiert:
+  - **Liste** (Standard): 20 Wörter pro Seite, Überschrift je Stunde. Gekannte antippen oder **✅ Alle** und nur die unbekannten wieder abwählen, dann *Übernehmen*. Gekannte kommen erst in 30 Tagen zur Kontrolle.
+  - **Karten**: ein Wort nach dem anderen – Knopf oder **wischen** (→ kenn ich, ← lernen).
+  - In jeder Stunde: **✓ Als gekannt markieren** (alle Wörter vormarkiert, Unbekanntes abwählen) und **🎯 Stichprobe** (5 Zufallswörter; alle gewusst → auf Wunsch die ganze Stunde als gekannt markieren).
+  - „Zurück“ nimmt den letzten Schritt bzw. die letzte Seite zurück.
 - **💬 Mit Claude üben:** öffnet ein Rollenspiel auf claude.ai mit deinen Wörtern (aus der Stunde, schwierige, zuletzt falsche …) und einer Situation aus Arbeit oder Freizeit. Optional direkt in deinem Claude-Projekt.
 - **✍️ Sätze holen:** Claude schreibt Beispielsätze für Wörter ohne Satz – Antwort einfügen, fertig.
 
