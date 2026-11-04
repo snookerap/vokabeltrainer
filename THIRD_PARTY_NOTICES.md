@@ -39,5 +39,9 @@ Piper ist GPL-lizenziert. Es läuft unverändert im Worker-Container, und die Ap
 |---|---|---|
 | en_GB-cori-high | LibriVox | gemeinfrei |
 | en_US-ljspeech-high | LJ Speech Dataset | gemeinfrei |
+| en_GB-southern_english_female-low | laut Model Card | CC BY-SA 4.0 |
+| en_US-kristin-medium, en_US-john-medium, en_US-bryce-medium, en_US-norman-medium | LibriVox | gemeinfrei |
+
+In der App wählbar sind nur diese Stimmen (Liste `VOICE_CHOICES` im Worker).
 
 Stimmen auf Basis des Blizzard-2013-Lessac-Datensatzes (`en_US-lessac-*`) sind nur für Forschung bzw. nicht-kommerziell lizenziert. Der Worker ersetzt sie deshalb automatisch, außer `PIPER_ALLOW_RESTRICTED=1` ist gesetzt.

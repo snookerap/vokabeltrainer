@@ -143,7 +143,7 @@ details summary{cursor:pointer;font-weight:700;padding:6px 0}
 <script src="pocketbase.umd.js"></script>
 <script>
 'use strict';
-const APP_VERSION='1.14.2 (04.11.2026)';
+const APP_VERSION='1.15.0 (04.11.2026)';
 /* ---------- helpers ---------- */
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
@@ -269,9 +269,24 @@ async function playBuf(buf,s,e){
   if(c.state!=='running')await tryResume(c);
   if(c.state!=='running'){try{c.close()}catch(x){}ctx=null;c=actx();await tryResume(c)} // iOS: "interrupted" nach Mikrofon -> neu aufbauen
   if(c.state!=='running')throw new Error('Audio blockiert (Status: '+c.state+')');
-  const src=c.createBufferSource();src.buffer=buf;src.connect(c.destination);
+  const src=c.createBufferSource();src.buffer=buf;
+  // Lautstärke angleichen: Lehrer-Clip und KI-Stimme auf denselben Pegel, Begrenzer gegen Übersteuern
+  const g=c.createGain();g.gain.value=levelGain(buf,s,e);
+  const lim=c.createDynamicsCompressor();lim.threshold.value=-3;lim.knee.value=4;lim.ratio.value=20;lim.attack.value=.002;lim.release.value=.08;
+  src.connect(g);g.connect(lim);lim.connect(c.destination);
   if(s==null)src.start(0);else src.start(0,s,Math.max(.15,e-s));curSrc=src;
   return new Promise(r=>src.onended=r);
+}
+// Verstärkung für einen Ausschnitt: Ziel-Pegel (RMS) ca. -18 dBFS, nur die lauteren 60 % zählen (Pausen ignorieren)
+const LEVEL_TARGET=0.125,levelCache=new WeakMap();
+function levelGain(buf,s,e){
+  let m=levelCache.get(buf);if(!m){m={};levelCache.set(buf,m)}const k=(s??'a')+'|'+(e??'b');if(m[k])return m[k];
+  const d=buf.getChannelData(0),sr=buf.sampleRate;const i0=Math.max(0,Math.floor((s||0)*sr)),i1=Math.min(d.length,e==null?d.length:Math.ceil(e*sr));
+  const win=Math.max(1,Math.floor(sr*0.02)),blocks=[];
+  for(let i=i0;i+win<=i1;i+=win){let q=0;for(let j=i;j<i+win;j+=2)q+=d[j]*d[j];blocks.push(q/(win/2))}
+  if(!blocks.length)return 1;blocks.sort((a,b)=>b-a);const top=blocks.slice(0,Math.max(1,Math.ceil(blocks.length*0.6)));
+  const rms=Math.sqrt(top.reduce((a,b)=>a+b,0)/top.length);
+  return m[k]=rms>1e-4?Math.min(8,Math.max(0.4,LEVEL_TARGET/rms)):1;
 }
 function speakBrowser(text){
   try{stopAudio();const u=new SpeechSynthesisUtterance(ttsText(text));const v=set().voice;u.lang=v;u.rate=.92;
@@ -345,9 +360,19 @@ function setProg(lid,wid,p){
   return touched;
 }
 // neue Wörter pro Tag: heute zum ersten Mal gelernte (gleiche Wörter zählen einmal)
-function newToday(){const t0=startOfDay(Date.now());const k=new Set();
-  for(const lid in S.progress){const l=S.lessons[lid];if(!l)continue;for(const w of l.words||[]){const p=prog(lid,w.id);if(p&&p.f&&p.f>=t0)k.add(wkey(w))}}return k.size}
+// die beiden neuesten Stunden: deren neue Wörter kommen in der täglichen Runde immer dran (ohne Tageslimit)
+const RECENT_N=2;
+function recentKeys(){const k=new Set();for(const l of lessonsSorted().slice(0,RECENT_N))for(const w of l.words||[])if(!isNote(w))k.add(wkey(w));return k}
+// heute zum ersten Mal gelernte Wörter – ohne die aus den neuesten Stunden (die zählen nicht ins Limit)
+function newToday(){const t0=startOfDay(Date.now());const k=new Set();const rk=recentKeys();
+  for(const lid in S.progress){const l=S.lessons[lid];if(!l)continue;for(const w of l.words||[]){const p=prog(lid,w.id);if(p&&p.f&&p.f>=t0&&!rk.has(wkey(w)))k.add(wkey(w))}}return k.size}
 function newQuota(){const n=+set().newPerDay;return n>0?Math.max(0,n-newToday()):Infinity}
+// neue Wörter für die tägliche Runde: alle aus den neuesten Stunden + Archiv bis zum Tageslimit
+function newPlan(items){const rk=recentKeys();const all=newByPriority(items);
+  const recent=all.filter(i=>rk.has(wkey(i.w))),older=all.filter(i=>!rk.has(wkey(i.w)));
+  return {recent,older:older.slice(0,newQuota()),olderAvail:older.length}}
+// zwei Listen abwechselnd mischen (neue Wörter und Wiederholungen gleichmäßig verteilt)
+function interleave(a,b){const out=[];for(let i=0;i<Math.max(a.length,b.length);i++){if(i<a.length)out.push(a[i]);if(i<b.length)out.push(b[i])}return out}
 // Reihenfolge für neue Wörter: neueste Stunden zuerst (dein aktueller Kurs), dann rückwärts durchs Archiv
 function newByPriority(items){
   const rank={};lessonsSorted().forEach((l,i)=>rank[l.id]=i);
@@ -405,8 +430,8 @@ function buildSession(cfg){
   if(cfg.topic)items=items.filter(i=>cfg.topic==='none'?!i.w.topic&&!isNote(i.w):i.w.topic===cfg.topic);
   if(cfg.focus==='due'){
     const due=shuffle(items.filter(i=>isDue(i.p,now))).sort((a,b)=>a.p.d-b.p.d);
-    const nw=newByPriority(items).slice(0,newQuota());
-    items=due.concat(nw);
+    const np=newPlan(items);
+    items=interleave(np.recent,due).concat(np.older); // zuerst: neue aus den letzten Stunden + Wiederholungen, dann Archiv
   }else if(cfg.focus==='hard'){items=items.filter(i=>isHard(i.p)).sort((a,b)=>(b.p.l/b.p.n)-(a.p.l/a.p.n))}
   else if(cfg.focus==='new'){items=items.filter(i=>status(i.p)==='n')}
   else if(cfg.focus==='prep'){
@@ -450,7 +475,7 @@ function startSession(cfg){
   freshAudio();const s=buildSession(cfg);
   if(!s.q.length){toast(cfg.focus==='due'?'Nichts fällig – wähle „Alle“':cfg.mode==='cloze'?'Keine Wörter mit Beispielsatz in dieser Auswahl':'Keine passenden Wörter');return}
   S.ses=s;S.tab='practice';
-  const s2=set();if(s2.mode!==cfg.mode||s2.dir!==cfg.dir||s2.len!==cfg.len||s2.focus!==cfg.focus)Store.saveMeta('settings',Object.assign(s2,{mode:cfg.mode,dir:cfg.dir,len:cfg.len,focus:cfg.focus}));
+  const s2=set();if(!cfg.keep&&(s2.mode!==cfg.mode||s2.dir!==cfg.dir||s2.len!==cfg.len||s2.focus!==cfg.focus))Store.saveMeta('settings',Object.assign(s2,{mode:cfg.mode,dir:cfg.dir,len:cfg.len,focus:cfg.focus}));
   [...new Set(cfg.lids)].forEach(lid=>recsFor(lid).filter(r=>r.status==='done').forEach(r=>getBuf(r,'file').catch(()=>{})));
   render();
 }
@@ -506,14 +531,14 @@ function bar(c){if(!c.tot)return '<div class="bar"></div>';return `<div class="b
 
 function viewHome(){
   const ls=lessonsSorted();const all=ls.map(l=>l.id);const c=counts(all);const last=ls[0];const st=streak();
-  const q=newQuota();const nwAvail=newByPriority(allItems(all)).length;const nwToday=Math.min(nwAvail,q);
-  const today=c.due+nwToday;const sortable=nwAvail;
+  const np=newPlan(allItems(all));const nwToday=np.recent.length+np.older.length;
+  const today=c.due+nwToday;const sortable=np.recent.length+np.olderAvail;const nwAvail=sortable;
   if(!ls.length)return `<div class="top"><div class="grow"><h1>Vokabeln</h1></div></div>
     <div class="card center pad"><h2>Noch keine Stunden</h2><p class="muted">Lege deine erste Stunde an und trage die Wörter ein.</p><button class="btn pri" data-act="tab" data-v="add">Erstes Wort eintragen</button></div>`;
   const lc=last?counts([last.id]):null;
   return `<div class="top"><div class="grow"><h1>Vokabeln</h1><div class="sub">${c.tot} Wörter · ${ls.length} Stunden${st?` · 🔥 ${st} Tag${st>1?'e':''} in Folge`:''}</div></div></div>
   <div class="card hero">
-    <div class="row"><div class="grow"><div class="big">${today}</div><div class="sub">Wörter für heute · ${c.due} zum Wiederholen, ${nwToday} neu${+set().newPerDay>0&&nwAvail>nwToday?` <span style="opacity:.75">(Tageslimit ${set().newPerDay})</span>`:''}</div></div></div>
+    <div class="row"><div class="grow"><div class="big">${today}</div><div class="sub">Wörter für heute · ${c.due} zum Wiederholen${np.recent.length?`, ${np.recent.length} neu aus den letzten ${RECENT_N} Stunden`:''}${np.older.length?`, ${np.older.length} ${np.recent.length?'weitere ':''}neu`:''}${+set().newPerDay>0&&np.olderAvail>np.older.length?` <span style="opacity:.75">(Tageslimit ${set().newPerDay})</span>`:''}</div></div></div>
     <div style="margin-top:16px"><button class="btn pri full" data-act="quick" data-v="due" ${today?'':'disabled'}>${today?'Jetzt üben':'Alles erledigt für heute ✓'}</button></div>
   </div>
   ${sortable>=20?`<div class="card"><div class="row"><div class="grow"><h3>⚡ Kenn ich schon?</h3><div class="small muted">${sortable} Wörter noch nie geübt. Sortier schnell aus, was du schon kannst – dann kommen nur die anderen ins Tageslimit.</div></div></div>
@@ -532,7 +557,7 @@ function viewSetup(){
   const u=S.setup;u.lids=u.lids.filter(id=>S.lessons[id]);
   const c=counts(u.lids);const tItems=u.topic?allItems(u.lids).filter(i=>u.topic==='none'?!i.w.topic&&!isNote(i.w):i.w.topic===u.topic):null;
   if(tItems){const now=Date.now();Object.assign(c,{tot:tItems.length,due:tItems.filter(i=>isDue(i.p,now)).length,nw:tItems.filter(i=>status(i.p)==='n').length})}
-  if(u.focus==='due')c.nw=Math.min(newByPriority(tItems||allItems(u.lids)).length,newQuota());
+  if(u.focus==='due'){const np=newPlan(tItems||allItems(u.lids));c.nw=np.recent.length+np.older.length}
   const n=u.focus==='due'?c.due+c.nw:u.focus==='new'?c.nw:u.focus==='hard'?(tItems||allItems(u.lids)).filter(i=>isHard(i.p)).length:c.tot;
   const allW=allItems(ls.map(l=>l.id)).filter(i=>!isNote(i.w));const tc=t=>allW.filter(i=>t==='none'?!i.w.topic:i.w.topic===t).length;
   const topicCard=allW.some(i=>i.w.topic)?`<div class="card"><div class="row"><h3 class="grow">Thema</h3><span class="small muted">${u.topic?'gilt für die gewählten Stunden':'optional'}</span></div>
@@ -699,7 +724,7 @@ function viewMore(){
   <div class="card"><h3>Stimme</h3>
     <label class="f">Beim Üben bevorzugt</label>${sb('prefer',[['teacher','👤 Lehrer'],['ai','🤖 KI-Stimme']])}
     <p class="small muted" style="margin:6px 0 0">Gibt es keinen Lehrer-Clip, spricht immer die KI-Stimme. Beim Üben kannst du mit dem zweiten Knopf jederzeit die andere Stimme hören.</p>
-    <label class="f">KI-Stimme</label>${sb('voice',[['en-GB','Britisch'],['en-US','Amerikanisch']])}
+    <label class="f">KI-Stimme</label>${viewVoices()}
     <p class="small muted" style="margin:6px 0 0">${ttsCount} von ${total} Wörtern sind in dieser Stimme fertig.${ttsCount<total?' Der Rest wird gerade im Hintergrund erzeugt.':''}</p>
     <label class="f">Aussprache automatisch abspielen</label>${sb('autoplay',[[true,'Ja'],[false,'Nein']])}
   </div>
@@ -984,6 +1009,28 @@ ${ws.map(w=>`${w.id}: ${ttsText(w.en)} (= ${w.de})`).join('\n')}`;
     }
   };
 }
+
+/* ---------- KI-Stimmen (nur frei lizenzierte, siehe Lizenzen) ---------- */
+const VOICE_LIST=[
+  ['en_GB-cori-high','en-GB','🇬🇧','Cori','britisch · weiblich',1],
+  ['en_GB-southern_english_female-low','en-GB','🇬🇧','Southern English','britisch · weiblich · einfache Qualität',0],
+  ['en_US-ljspeech-high','en-US','🇺🇸','Linda','amerikanisch · weiblich',1],
+  ['en_US-kristin-medium','en-US','🇺🇸','Kristin','amerikanisch · weiblich',0],
+  ['en_US-john-medium','en-US','🇺🇸','John','amerikanisch · männlich',0],
+  ['en_US-bryce-medium','en-US','🇺🇸','Bryce','amerikanisch · männlich',0],
+  ['en_US-norman-medium','en-US','🇺🇸','Norman','amerikanisch · männlich',0]];
+// gewählte Stimme: ausdrücklich gewählt, sonst Standard der Sprache (Cori bzw. Linda)
+function curVoiceModel(){const st=set();const m=st.voiceModel;const v=VOICE_LIST.find(x=>x[0]===m&&x[1]===st.voice);return v?v[0]:(VOICE_LIST.find(x=>x[1]===st.voice&&x[5])||VOICE_LIST[0])[0]}
+function viewVoices(){
+  const cur=curVoiceModel();
+  return `<div class="list" style="margin:0">${VOICE_LIST.map(([m,lang,flag,name,desc])=>{const smp=S.tts['sample|'+m];
+    return `<div class="li" style="min-height:54px;padding:8px 12px"><button class="grow" style="background:none;border:0;text-align:left;padding:0;display:flex;gap:10px;align-items:center" data-act="voicepick" data-v="${m}">
+      <span style="font-size:20px;width:22px">${m===cur?'✅':'⚪️'}</span><span><div class="en">${flag} ${esc(name)}</div><div class="de">${esc(desc)}</div></span></button>
+      ${smp?`<button class="btn icon" data-act="voicesample" data-v="${m}" aria-label="Hörprobe">▶</button>`:''}</div>`}).join('')}</div>`;
+}
+async function voiceSample(m){const r=S.tts['sample|'+m];if(!r)return;actx();try{await playBuf(await getBuf(r,'file'))}catch(e){try{await playElement(r,'file')}catch(x){toast('Hörprobe nicht abspielbar','err')}}}
+function voicePick(m){const v=VOICE_LIST.find(x=>x[0]===m);if(!v)return;const st=set();if(st.voiceModel===m&&st.voice===v[1])return;
+  st.voiceModel=m;st.voice=v[1];Store.saveMeta('settings',st);render();toast(`Stimme ${v[3]} gewählt – der Server spricht jetzt alle Wörter neu ein (dauert ein paar Minuten)`);}
 
 /* ---------- Tägliche Erinnerung (Web-Push) ---------- */
 const isIOS=/iPhone|iPad|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
@@ -1604,8 +1651,9 @@ document.addEventListener('click',async e=>{
     case 'tab':S.tab=v;render();break;
     case 'quick':{const ls=lessonsSorted();const st=set();
       const lids=v==='last'?[ls[0].id]:ls.map(l=>l.id);
-      if(v==='prep'){startSession({lids:ls.map(l=>l.id),focus:'prep',mode:st.mode,dir:st.dir,len:0});break}
-      startSession({lids,focus:v==='hard'?'hard':v==='last'?'all':'due',mode:st.mode,dir:st.dir,len:v==='last'?0:20});break}
+      // Schnellstart (Startseite) immer gemischt – die Übungsart unter „Üben“ gilt nur dort
+      if(v==='prep'){startSession({lids:ls.map(l=>l.id),focus:'prep',mode:'mix',dir:st.dir,len:0,keep:true});break}
+      startSession({lids,focus:v==='hard'?'hard':v==='last'?'all':'due',mode:'mix',dir:st.dir,len:v==='last'?0:20,keep:true});break}
     case 'open':S.tab='lessons';S.view={lesson:v};recsFor(v).filter(r=>r.status==='done').forEach(r=>getBuf(r,'file').catch(()=>{}));render();window.scrollTo(0,0);break;
     case 'back':S.view=null;render();break;
     case 'pick':{const ls=lessonsSorted();S.setup.lids=v==='last'?ls.slice(0,1).map(l=>l.id):v==='last3'?ls.slice(0,3).map(l=>l.id):v==='all'?ls.map(l=>l.id):[];render();break}
@@ -1624,6 +1672,8 @@ document.addEventListener('click',async e=>{
     case 'pushoff':pushOff();break;
     case 'pushtest':pushTest();break;
     case 'widgetkey':widgetKey();break;
+    case 'voicepick':voicePick(v);break;
+    case 'voicesample':voiceSample(v);break;
     case 'widgetcopy':widgetCopy();break;
     case 'widgetopen':Store.saveMeta('widget',Object.assign({},S.meta.widget,{open:v}));render();break;
     case 'start':if(S.setup.mode==='hear'){plUnlock();startPlayer(S.setup.lids.slice())}else startSession(Object.assign({},S.setup));break;

@@ -56,6 +56,21 @@ def _voice(lang, env):
 
 
 VOICES = {"en-GB": _voice("en-GB", "PIPER_VOICE_GB"), "en-US": _voice("en-US", "PIPER_VOICE_US")}
+# In der App wählbare Stimmen – nur frei lizenzierte (Public Domain / CC0 / CC BY-SA), siehe THIRD_PARTY_NOTICES.md
+VOICE_CHOICES = {
+    "en_GB-cori-high": "en-GB", "en_GB-southern_english_female-low": "en-GB",
+    "en_US-ljspeech-high": "en-US", "en_US-kristin-medium": "en-US", "en_US-bryce-medium": "en-US",
+    "en_US-john-medium": "en-US", "en_US-norman-medium": "en-US",
+}
+
+
+def voice_model(st):
+    """Gewählte Stimme aus den App-Einstellungen (nur aus der freien Liste), sonst Standard aus der .env."""
+    voice = st.get("voice") or "en-GB"
+    m = st.get("voiceModel")
+    if m in VOICE_CHOICES and VOICE_CHOICES[m] == voice:
+        return voice, m
+    return voice, VOICES.get(voice, VOICES["en-GB"])
 PIPER_SPEED = float(os.environ.get("PIPER_LENGTH_SCALE", "1.05"))
 FAKE = os.environ.get("FAKE_AI") == "1"  # nur für Tests ohne Modelle
 
@@ -336,8 +351,15 @@ def settings(pb):
 
 def tts_loop():
     pb = PB()
+    samples_at = 0
     while True:
         tick("tts")
+        if time.time() - samples_at > 3600:
+            samples_at = time.time()
+            try:
+                ensure_samples(pb)
+            except Exception as e:
+                log.warning("Hörproben konnten nicht geladen werden: %s", e)
         try:
             BUSY["tts"] = True
             made = tts_pass(pb)
@@ -349,9 +371,28 @@ def tts_loop():
             time.sleep(30)
 
 
+def ensure_samples(pb):
+    """Hörproben der wählbaren Stimmen einmal vom Piper-Projekt holen und lokal in PocketBase ablegen."""
+    have = {r["text"] for r in pb.full_list("tts", pb_filter_eq("voice", "sample"))}
+    for name in VOICE_CHOICES:
+        if name in have:
+            continue
+        with tempfile.TemporaryDirectory() as td:
+            mp3 = os.path.join(td, "sample.mp3")
+            if FAKE:
+                synth_mp3("Hello", name, mp3)
+            else:
+                lang, speaker, quality = name.split("-", 2)
+                url = f"https://huggingface.co/rhasspy/piper-voices/resolve/main/{lang.split('_')[0]}/{lang}/{speaker}/{quality}/samples/speaker_0.mp3"
+                urllib.request.urlretrieve(url, mp3)
+            with open(mp3, "rb") as f:
+                pb.req("POST", "/api/collections/tts/records", data={"key": "sample-" + name, "text": name, "voice": "sample"},
+                       files={"file": ("sample.mp3", f, "audio/mpeg")})
+        log.info("Hörprobe für Stimme %s gespeichert", name)
+
+
 def tts_pass(pb, limit=40):
-    voice = settings(pb).get("voice") or "en-GB"
-    model = VOICES.get(voice, VOICES["en-GB"])
+    voice, model = voice_model(settings(pb))
     lessons = sorted(pb.full_list("lessons"), key=lambda l: (l.get("date") or "", l.get("order") or 0), reverse=True)
     texts = []
     for l in lessons:
@@ -589,6 +630,8 @@ def compute_summary(lessons, progress, meta, tz_name=None, now=None, prev_wod=No
         per_day = 10
     # neueste Stunden zuerst (wie in der App)
     lessons = sorted(lessons, key=lambda l: (l.get("date") or "", l.get("order") or 0), reverse=True)
+    # neue Wörter der beiden neuesten Stunden kommen immer dran (ohne Tageslimit)
+    recent = {norm_en(w.get("en")) for l in lessons[:2] for w in (l.get("words") or []) if w.get("kind") != "note"}
     due = sure = total = 0
     new_keys, today_keys, pool = [], set(), []
     seen_new = set()
@@ -608,12 +651,14 @@ def compute_summary(lessons, progress, meta, tz_name=None, now=None, prev_wod=No
             if not n and k not in seen_new:
                 seen_new.add(k)
                 new_keys.append(k)
-            if p.get("f") and p["f"] >= day0:
+            if p.get("f") and p["f"] >= day0 and k not in recent:
                 today_keys.add(k)
             if len(tts_text(w.get("en")).split()) <= 4 and (p.get("b") or 0) < 4 and w.get("en") and w.get("de"):
                 pool.append((l, w))
-    quota = max(0, per_day - len(today_keys)) if per_day > 0 else len(new_keys)
-    new_today = min(len(new_keys), quota)
+    recent_new = [k for k in new_keys if k in recent]
+    older_new = [k for k in new_keys if k not in recent]
+    quota = max(0, per_day - len(today_keys)) if per_day > 0 else len(older_new)
+    new_today = len(recent_new) + min(len(older_new), quota)
     days = set((meta.get("stats") or {}).get("days") or [])
     practiced = today in days
     streak, d = 0, now.date()
