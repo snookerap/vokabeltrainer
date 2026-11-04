@@ -143,7 +143,7 @@ details summary{cursor:pointer;font-weight:700;padding:6px 0}
 <script src="pocketbase.umd.js"></script>
 <script>
 'use strict';
-const APP_VERSION='1.14.1 (04.11.2026)';
+const APP_VERSION='1.14.2 (04.11.2026)';
 /* ---------- helpers ---------- */
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
@@ -1058,8 +1058,8 @@ function viewWidget(){
         <li>Widget lange drücken → <b>Widget bearbeiten</b> → bei Script <b>Vokabeln</b> wählen.</li></ol>
       <p class="small muted">Skript geändert? Widget einmal entfernen und neu hinzufügen – sonst merkt es sich den alten Stand bis zu 30 Minuten.</p>
       <label class="f">Antippen des Widgets öffnet</label>
-      <div class="seg">${[['webapp','Web-App'],['shortcut','Web-App (Kurzbefehl)'],['browser','Browser']].map(([v,t])=>`<button data-act="widgetopen" data-v="${v}" class="${widgetOpen()===v?'on':''}">${t}</button>`).join('')}</div>
-      <p class="small muted" style="margin:6px 0 10px">${({webapp:'Öffnet die App vom Home-Bildschirm (nicht Chrome/Safari).',shortcut:'Falls „Web-App“ nicht klappt: In der App <b>Kurzbefehle</b> einen Kurzbefehl <b>Vokabeln App</b> mit der Aktion „URLs öffnen“ und der URL <b>webapp://'+esc(location.host)+'</b> anlegen.',browser:'Öffnet die Seite im Standardbrowser.'})[widgetOpen()]}</p>
+      <div class="seg">${[['shortcut','Web-App'],['browser','Browser']].map(([v,t])=>`<button data-act="widgetopen" data-v="${v}" class="${widgetOpen()===v?'on':''}">${t}</button>`).join('')}</div>
+      <p class="small muted" style="margin:6px 0 10px">${widgetOpen()==='shortcut'?`Öffnet die App vom Home-Bildschirm. Dafür einmalig in der App <b>Kurzbefehle</b>: <b>+</b> → Aktion <b>„URLs öffnen“</b> → URL <b>webapp://${esc(location.host)}</b> → Kurzbefehl <b>Vokabeln App</b> nennen.`:'Öffnet die Seite im Standardbrowser (z. B. Chrome).'}</p>
       <div class="row" style="gap:10px"><button class="btn pri grow" data-act="widgetcopy">📋 Skript kopieren</button><button class="btn grow" data-act="widgetkey">Neuer Schlüssel</button></div>
       <p class="small muted" style="margin:8px 0 0">„Neuer Schlüssel“ sperrt alle bisher kopierten Widgets – danach das Skript neu kopieren.</p>`
       :`<button class="btn full" data-act="widgetkey">Widget einrichten</button>`}</div>`;
@@ -1069,7 +1069,7 @@ async function widgetKey(){
   if(S.meta.widget&&S.meta.widget.key&&!(await confirmBox('Neuen Schlüssel erzeugen? Bereits eingerichtete Widgets zeigen dann „Schlüssel ungültig“, bis du das Skript neu kopierst.','Neu erzeugen')))return;
   await Store.saveMeta('widget',{key:newWidgetKey(),at:Date.now(),open:widgetOpen()});widgetSrc=null;render();toast('Schlüssel erzeugt');
 }
-const widgetOpen=()=>(S.meta.widget&&S.meta.widget.open)||'webapp';
+const widgetOpen=()=>{const o=S.meta.widget&&S.meta.widget.open;return o==='browser'?'browser':'shortcut'}; // webapp:// direkt kann Scriptable nicht öffnen
 function widgetScript(){
   const api=location.origin+'/api/heute?key='+encodeURIComponent(S.meta.widget.key);
   const app={webapp:'webapp://'+location.host+'/',shortcut:'shortcuts://run-shortcut?name=Vokabeln%20App',browser:location.origin+'/'}[widgetOpen()];
