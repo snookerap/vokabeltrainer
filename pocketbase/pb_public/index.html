@@ -146,7 +146,7 @@ details summary{cursor:pointer;font-weight:700;padding:6px 0}
 <script src="pocketbase.umd.js"></script>
 <script>
 'use strict';
-const APP_VERSION='1.18.2 (05.11.2026)';
+const APP_VERSION='1.18.3 (05.11.2026)';
 /* ---------- helpers ---------- */
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
@@ -1149,7 +1149,7 @@ async function pushTest(){
 let widgetSrc=null;
 function viewWidget(){
   const k=S.meta.widget&&S.meta.widget.key;
-  if(k&&!widgetSrc)fetch('widget/vokabeln-scriptable.js',{cache:'no-store'}).then(r=>r.text()).then(t=>{widgetSrc=t}).catch(()=>{});
+  if(k&&!widgetSrc)fetch('widget/vokabeln-scriptable.js?v='+encodeURIComponent(APP_VERSION)+'-'+Date.now(),{cache:'no-store'}).then(r=>r.text()).then(t=>{widgetSrc=t}).catch(()=>{});
   return `<div class="card"><h3>📱 Widget fürs iPhone</h3>
     <p class="small muted">Zeigt auf dem Home- oder Sperrbildschirm deine Wörter für heute, die Serie, den Fortschritt und ein Wort des Tages. Läuft über die kostenlose App <b>Scriptable</b>.</p>
     ${k?`<ol class="small" style="padding-left:20px;margin:8px 0">
