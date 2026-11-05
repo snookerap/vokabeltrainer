@@ -146,7 +146,7 @@ details summary{cursor:pointer;font-weight:700;padding:6px 0}
 <script src="pocketbase.umd.js"></script>
 <script>
 'use strict';
-const APP_VERSION='1.18.4 (05.11.2026)';
+const APP_VERSION='1.19.0 (05.11.2026)';
 /* ---------- helpers ---------- */
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
@@ -415,6 +415,8 @@ function variants(ans,lang){
 }
 function lev(a,b){const m=a.length,n=b.length;if(!m)return n;if(!n)return m;let prev=Array.from({length:n+1},(_,i)=>i);
   for(let i=1;i<=m;i++){const cur=[i];for(let j=1;j<=n;j++)cur[j]=Math.min(prev[j]+1,cur[j-1]+1,prev[j-1]+(a[i-1]===b[j-1]?0:1));prev=cur}return prev[n]}
+// Hauptbedeutung + weitere Bedeutungen (alle zählen als richtig)
+function deAll(w){return w.alt?w.de+', '+w.alt:w.de}
 function checkWritten(input,ans,lang){
   const x=numNorm(normAns(input,lang));if(!x)return {ok:false};
   let best=99;
@@ -598,7 +600,7 @@ function viewSession(){
   const head=`<div class="row" style="padding:16px 0 4px"><button class="btn icon ghost" data-act="quit" aria-label="Beenden">✕</button><div class="prog"><i style="width:${pct}%"></i></div><span class="small muted">${s.idx+1}/${s.q.length}</span></div>`;
   const alt=otherVoice(w);
   const spk=`<span class="row" style="justify-content:center;gap:8px;display:inline-flex"><button class="btn icon" data-act="say" aria-label="Aussprache">🔊</button>${alt?`<button class="btn icon ghost" data-act="sayalt" data-v="${alt}" aria-label="Andere Stimme" title="Andere Stimme">${alt==='teacher'?'👤':'🤖'}</button>`:''}</span>`;
-  const extra=(w.ex?`<div class="x">„${esc(exText(w.ex))}“</div>`:'')+(w.note?`<div class="x">${esc(w.note)}</div>`:'');
+  const extra=(w.alt&&!isNote(w)?`<div class="x" style="font-style:normal">auch: ${esc(w.alt)}</div>`:'')+(w.ex?`<div class="x">„${esc(exText(w.ex))}“</div>`:'')+(w.note?`<div class="x">${esc(w.note)}</div>`:'');
   const what={listen:'Was bedeutet das?',dict:'Diktat – schreib, was du hörst',cloze:'Lückensatz',speak:'Sag es auf Englisch'}[it.type]||(isNote(w)?'📝 Notiz':de2en?'Auf Englisch':'Auf Deutsch');
   const lbl=`<div class="lbl">${what} · ${esc(shortName(l))}</div>`;
   let body='';const st=s.state||(s.state={});
@@ -640,7 +642,10 @@ function mcOptions(it,w,field){
   let pool=shuffle(sameLesson);
   if(pool.length<6)pool=pool.concat(shuffle(allItems(Object.keys(S.lessons)).map(i=>i.w).filter(x=>x.id!==w.id&&!isNote(x))));
   const seen=new Set([normAns(w[field],field)]);const out=[w[field]];
-  for(const x of pool){const n=normAns(x[field],field);if(!x[field]||seen.has(n))continue;seen.add(n);out.push(x[field]);if(out.length>=4)break}
+  const mine=new Set(field==='de'?variants(deAll(w),'de'):variants(w.en,'en'));
+  for(const x of pool){const n=normAns(x[field],field);if(!x[field]||seen.has(n))continue;
+    if(variants(field==='de'?x.de:x.en,field).some(v=>mine.has(v)))continue; // wäre auch richtig
+    seen.add(n);out.push(x[field]);if(out.length>=4)break}
   return shuffle(out);
 }
 function viewSummary(){
@@ -710,14 +715,14 @@ function viewLesson(id){
   return `<div class="top"><button class="btn icon ghost" data-act="back" aria-label="Zurück">‹</button><div class="grow"><h2>${esc(l.name)}</h2><div class="sub">${c.tot} Wörter · ${c.s} sicher · ${c.l} am Lernen · ${c.nw} neu</div></div><button class="btn icon" data-act="editlesson" aria-label="Stunde bearbeiten">✎</button></div>
   <div class="row" style="margin-bottom:12px"><button class="btn pri grow" data-act="practicelesson">Üben</button><button class="btn grow" data-act="addto">+ Wort</button></div>
   ${(()=>{const n=sortItems(id).length;return n?`<div class="row" style="margin-bottom:12px;gap:10px"><button class="btn grow" data-act="lessonsort">✓ Als gekannt markieren</button>${n>=5?`<button class="btn grow" data-act="probe">🎯 Stichprobe</button>`:''}</div>`:''})()}
-  <div class="row" style="margin-bottom:12px;gap:10px"><button class="btn grow" data-act="claude">💬 Mit Claude üben</button>${words.some(needsTopic)?`<button class="btn grow" data-act="topics">🏷️ Themen holen (${words.filter(needsTopic).length})</button>`:''}${words.some(needsExample)?`<button class="btn grow" data-act="examples">✍️ Sätze holen (${words.filter(needsExample).length})</button>`:''}</div>
+  <div class="row wrap" style="margin-bottom:12px;gap:10px"><button class="btn grow" style="min-width:42%" data-act="claude">💬 Mit Claude üben</button>${words.some(needsTopic)?`<button class="btn grow" style="min-width:42%" data-act="topics">🏷️ Themen holen (${words.filter(needsTopic).length})</button>`:''}${words.some(needsMeaning)?`<button class="btn grow" style="min-width:42%" data-act="meanings">📖 Bedeutungen (${meaningsTodo(id).length})</button>`:''}${words.some(needsExample)?`<button class="btn grow" style="min-width:42%" data-act="examples">✍️ Sätze holen (${words.filter(needsExample).length})</button>`:''}</div>
   <div class="card"><h3>🎧 Aufnahme vom Lehrer</h3>
     <div class="small muted">${recs.length?`${withClip} von ${words.length} Wörtern haben einen Lehrer-Clip.`:'Lade hier die MP3 vom Ende der Stunde hoch. Whisper schneidet daraus automatisch jedes Wort.'}</div>
     ${recs.map(r=>`<div class="corr"><div class="row"><div class="grow"><b>${esc(r.orig_name||'Aufnahme')}</b><br><span class="muted">${recStatus(r)}</span></div>
       <button class="btn icon pri" data-act="hearrec" data-v="${r.id}" aria-label="Anhören">🎧</button><button class="btn icon" data-act="recmenu" data-v="${r.id}" aria-label="Optionen">⋯</button></div></div>`).join('')}
     <label class="btn full center" style="display:grid;place-items:center;margin-top:12px">${recs.length?'Weitere MP3 hochladen':'MP3 hochladen'}<input type="file" accept="audio/*,video/mp4,.mp3,.m4a,.mp4,.wav,.ogg" data-act="upload" hidden></label>
     ${words.some(w=>w.clip)&&recs.some(r=>r.status==='done')?`<p class="small muted">Stimmt ein Clip nicht? Tippe auf das Wort und wähle den Ausschnitt neu.</p>`:''}</div>
-  <div class="list">${words.map(w=>{const p=prog(id,w.id);const cl=clipOf(w);return `<div class="li"><span class="dot ${status(p)}"></span><button class="grow" style="background:none;border:0;text-align:left;padding:0" data-act="editword" data-v="${w.id}"><div class="en">${isNote(w)?'📝 ':''}${esc(isNote(w)?w.de:w.en)}${w.orig?' <span class="tag">korrigiert</span>':''}</div><div class="de">${esc(isNote(w)?w.en:w.de)}${w.topic&&TOPIC[w.topic]?` <span title="${esc(TOPIC[w.topic].name)}">${TOPIC[w.topic].icon}</span>`:''}</div></button>
+  <div class="list">${words.map(w=>{const p=prog(id,w.id);const cl=clipOf(w);return `<div class="li"><span class="dot ${status(p)}"></span><button class="grow" style="background:none;border:0;text-align:left;padding:0" data-act="editword" data-v="${w.id}"><div class="en">${isNote(w)?'📝 ':''}${esc(isNote(w)?w.de:w.en)}${w.orig?' <span class="tag">korrigiert</span>':''}</div><div class="de">${esc(isNote(w)?w.en:w.de)}${w.alt&&!isNote(w)?` <span class="muted">· ${esc(w.alt)}</span>`:''}${w.topic&&TOPIC[w.topic]?` <span title="${esc(TOPIC[w.topic].name)}">${TOPIC[w.topic].icon}</span>`:''}</div></button>
     ${isNote(w)?'':cl?`<button class="btn icon" data-act="playw" data-which="teacher" data-l="${id}" data-w="${w.id}" aria-label="Lehrer">👤</button>`:''}${isNote(w)?'':`<button class="btn icon" data-act="playw" data-which="ai" data-l="${id}" data-w="${w.id}" aria-label="KI-Stimme">${ttsOf(w)?'🤖':'🔈'}</button>`}</div>`}).join('')||'<div class="li muted">Noch keine Wörter.</div>'}</div>
   <p class="small muted">👤 Lehrer-Clip · 🤖 KI-Stimme (Piper) · 🔈 Handy-Stimme, solange die KI-Stimme noch erzeugt wird.<br>Punkte: grün sicher · gelb am Lernen · grau neu.</p>`;
 }
@@ -740,6 +745,7 @@ function viewMore(){
     <p class="small muted" style="margin:6px 0 0">So viele noch nie geübte Wörter kommen täglich zu den Wiederholungen dazu – zuerst aus den neuesten Stunden, dann rückwärts durch ältere. Heute schon: ${newToday()}.</p></div>
   ${viewReminder()}
   ${viewWidget()}
+  ${(()=>{const n=meaningsTodo().length;return n?`<div class="card"><h3>Weitere Bedeutungen</h3><p class="small muted">${n} Wörter sind noch nicht geprüft. Claude ergänzt weitere gängige Bedeutungen (z. B. account for = erklären · auch: ausmachen, berücksichtigen) – sie zählen beim Üben auch als richtig. Pakete zu je ${MEAN_BATCH} Wörtern.</p><button class="btn full" data-act="meaningsall">📖 Bedeutungen holen (${n})</button></div>`:''})()}
   ${(()=>{const n=examplesTodo().length;return n?`<div class="card"><h3>Beispielsätze</h3><p class="small muted">${n} Wörter haben noch keinen Satz. Claude schreibt sie in Paketen zu je ${EX_BATCH} Wörtern über alle Stunden.</p><button class="btn full" data-act="examplesall">✍️ Sätze für alle Stunden holen (${n})</button></div>`:''})()}
   <div class="card"><h3>Claude-Projekt</h3><p class="small muted">Optional: Link zu deinem Claude-Projekt. Dann erscheint beim Üben mit Claude der Knopf „In meinem Englisch-Projekt öffnen“.</p>
     <div class="row"><input class="t grow" id="projurl" value="${esc(st.claudeProject||DEFAULT_PROJECT)}" placeholder="https://claude.ai/project/…" autocapitalize="off"><button class="btn" data-act="saveproj">OK</button></div></div>
@@ -828,6 +834,7 @@ async function importJSON(file){
     if(d.type==='examples'){let n=0,ls=0;for(const lid in d.examples||{}){const l=S.lessons[lid];if(!l)continue;let ch=false;
         for(const w of l.words||[]){const v=d.examples[lid][w.id];if(v&&!w.ex){w.ex=v;n++;ch=true}}if(ch){await Store.saveLesson(l);ls++}}
       toast(n+' Beispielsätze in '+ls+' Stunden übernommen');render();return}
+    if(d.type==='meanings'){const n=applyMeanings(d.meanings||{});toast(n+' Wörter mit weiteren Bedeutungen ergänzt');render();return}
     if(d.type==='topics'){let n=0,ls=0;for(const lid in d.topics||{}){const l=S.lessons[lid];if(!l)continue;let ch=false;
         for(const w of l.words||[]){const v=d.topics[lid][w.id];if(v&&TOPIC[v]&&w.topic!==v&&!isNote(w)){w.topic=v;n++;ch=true}}if(ch){await Store.saveLesson(l);ls++}}
       toast(n+' Wörter in '+ls+' Stunden einem Thema zugeordnet');render();return}
@@ -840,7 +847,7 @@ async function importJSON(file){
       const cur=S.lessons[l.id];
       const words=(l.words||[]).map(w=>{const x=Object.assign({},w);if(Array.isArray(x.audio))delete x.audio;if(x.clip&&!S.recs[x.clip.rec])delete x.clip;
         const old=cur&&(cur.words||[]).find(o=>o.id===w.id);
-        if(old){for(const k of ['clip','noClip','ex','kind','note','topic'])if(old[k]!==undefined&&x[k]===undefined)x[k]=old[k];if(old.clip&&old.clip.manual)x.clip=old.clip}
+        if(old){for(const k of ['clip','noClip','ex','kind','note','topic','alt'])if(old[k]!==undefined&&x[k]===undefined)x[k]=old[k];if(old.clip&&old.clip.manual)x.clip=old.clip}
         return x});
       if(cur)for(const o of cur.words||[])if(!words.some(w=>w.id===o.id))words.push(o);
       const nl={id:l.id,name:cur?cur.name:l.name,date:(cur?cur.date:l.date)||'',dated:(cur?cur.dated:l.dated)!==false,order:cur?cur.order:(l.order||0),words};
@@ -1061,6 +1068,56 @@ ${batch.map((it,i)=>`${i+1}: ${ttsText(it.w.en)} (= ${it.w.de})`).join('\n')}`;
       for(const l of ch)await Store.saveLesson(l);
       toast(n+' Beispielsätze übernommen');closeSheet();
       if(examplesTodo().length)setTimeout(sheetExamplesAll,300);else render();
+    }
+  };
+}
+
+/* ---------- Weitere Bedeutungen von Claude holen – in Paketen ---------- */
+const MEAN_BATCH=200;
+const needsMeaning=w=>!isNote(w)&&w.alt===undefined; // '' = geprüft, keine weiteren
+function meaningsTodo(lid){
+  const seen=new Set(),out=[];
+  for(const l of lid?[S.lessons[lid]]:lessonsSorted())for(const w of l.words||[]){if(!needsMeaning(w))continue;const k=wkey(w);if(seen.has(k))continue;seen.add(k);out.push({lid:l.id,w})}
+  return out;
+}
+// byKey: englisch (normalisiert) → "Bedeutung, Bedeutung" ('' = keine weiteren). Gilt für alle gleichen Wörter.
+function applyMeanings(byKey){
+  const m={};for(const k in byKey)m[normAns(k,'en')]=String(byKey[k]||'').trim();
+  let n=0;const ch=new Set();
+  for(const l of lessonsSorted())for(const w of l.words||[]){if(!needsMeaning(w))continue;const v=m[wkey(w)];if(v===undefined)continue;
+    const own=new Set(variants(w.de,'de'));const rest=v.split(/[,;]/).map(x=>x.trim()).filter(x=>x&&!own.has(normAns(x,'de')));
+    w.alt=[...new Set(rest)].join(', ');if(w.alt)n++;ch.add(l)}
+  for(const l of ch)Store.saveLesson(l);
+  return n;
+}
+function sheetMeanings(lid){
+  const todo=meaningsTodo(lid);if(!todo.length)return toast('Für alle Wörter sind die Bedeutungen schon geprüft');
+  const batch=todo.slice(0,MEAN_BATCH);const packs=Math.ceil(todo.length/MEAN_BATCH);
+  const text=`Viele englische Vokabeln haben mehrere Bedeutungen. Gib mir bitte für jede Vokabel unten die WEITEREN gängigen deutschen Bedeutungen an, die nicht schon in der Übersetzung stehen (kurz, höchstens 4, mit Komma getrennt; nur Bedeutungen, die im Alltag oder Beruf wirklich vorkommen). Hat eine Vokabel keine weitere gängige Bedeutung, gib "" an.
+
+Antworte NUR mit einem JSON-Objekt in einem JSON-Codeblock, ohne weitere Erklärung, im Format {"Nummer": "Bedeutung, Bedeutung"}. Verwende gerade Anführungszeichen ("):
+
+${batch.map((it,i)=>`${i+1}: ${ttsText(it.w.en)} (= ${it.w.de})`).join('\n')}`;
+  const root=openSheet(`<div class="row"><div class="grow"><h2>📖 Weitere Bedeutungen</h2><div class="sub">${todo.length} Wörter ${lid?'in '+esc(S.lessons[lid].name):'ungeprüft'} · noch ${packs} ${packs===1?'Paket':'Pakete'} · jetzt ${batch.length} Wörter</div></div><button class="btn icon" data-x="close">✕</button></div>
+    <p class="small"><b>1.</b> Claude sucht weitere Bedeutungen:</p>
+    <div class="row" style="gap:8px"><button class="btn pri grow" data-x="ask">💬 In Claude öffnen</button><button class="btn grow" data-x="copy">📋 Text kopieren</button></div>
+    <p class="small" style="margin-top:14px"><b>2.</b> Claudes Antwort kopieren und hier einfügen:</p>
+    <textarea class="t" id="mnans" placeholder='{"1": "ausmachen, berücksichtigen", "2": ""}'></textarea>
+    <button class="btn full" style="margin-top:10px" data-x="apply">Übernehmen${packs>1?' & nächstes Paket':''}</button>`);
+  root.onclick=async e=>{const x=e.target.closest('[data-x]');if(e.target.classList.contains('scrim'))return closeSheet();if(!x)return;
+    if(x.dataset.x==='close')return closeSheet();
+    if(x.dataset.x==='ask')return openClaude(text,'new');
+    if(x.dataset.x==='copy'){try{await navigator.clipboard.writeText(text);toast('Text kopiert')}catch(err){toast('Kopieren nicht möglich – bitte „In Claude öffnen“ nutzen','err')}return}
+    if(x.dataset.x==='apply'){
+      const raw=$('#mnans').value;let obj=null;
+      const m=raw.replace(/```(?:json)?/gi,'').replace(/[“”„‟«»]/g,'"').match(/\{[\s\S]*\}/);
+      if(m){try{obj=JSON.parse(m[0])}catch(err){}}
+      if(!obj){obj={};let y;const re=/["']?(\d{1,3})["']?\s*[:.)]\s*"([^"\n]*)"/g;const t=raw.replace(/[“”„]/g,'"');while((y=re.exec(t)))obj[y[1]]=y[2]}
+      if(!Object.keys(obj).length)return toast('Keine Antwort erkannt – bitte Claudes komplette Antwort einfügen','err');
+      const byKey={};let got=0;batch.forEach((it,i)=>{const v=obj[String(i+1)];if(typeof v==='string'){byKey[it.w.en]=v;got++}});
+      if(!got)return toast('Keine passenden Nummern gefunden','err');
+      const n=applyMeanings(byKey);toast(`${got} Wörter geprüft · ${n} mit weiteren Bedeutungen`);closeSheet();
+      if(meaningsTodo(lid).length)setTimeout(()=>sheetMeanings(lid),300);else render();
     }
   };
 }
@@ -1718,6 +1775,7 @@ function sheetWord(lid,wid){
     <label class="f">${note?'Vorderseite':'Deutsch'}</label><input class="t" id="ede" value="${esc(w.de)}">
     <label class="f">${note?'Rückseite':'Englisch'}</label><input class="t" id="een" value="${esc(w.en)}" autocapitalize="off" spellcheck="false">
     ${dups.length?`<div class="hint">Kommt auch vor in: ${dups.map(x=>esc(x.name)).join(', ')} – der Lernstand ist gemeinsam.</div>`:''}
+    ${note?'':`<label class="f">Weitere Bedeutungen – mit Komma getrennt, zählen beim Üben auch als richtig</label><input class="t" id="eal" value="${esc(w.alt||'')}" placeholder="z. B. ausmachen, berücksichtigen">`}
     <label class="f">Beispielsatz – Vokabel in [ ] für Lückensätze</label><input class="t" id="eex" value="${esc(w.ex||'')}" autocapitalize="off" placeholder="Learning a language needs a lot of [patience].">
     <label class="f">Notiz</label><input class="t" id="eno" value="${esc(w.note||'')}">
     ${note?'':`<label class="f">Thema</label><select class="t" id="etp"><option value="">– kein Thema –</option>${TOPICS.map(t=>`<option value="${t[0]}" ${w.topic===t[0]?'selected':''}>${t[1]} ${esc(t[2])}</option>`).join('')}</select>`}
@@ -1734,7 +1792,7 @@ function sheetWord(lid,wid){
     if(x.dataset.x==='del'){if(await confirmBox(`„${w.en}“ löschen?`,'Löschen')){l.words=l.words.filter(y=>y.id!==wid);Store.saveLesson(l);toast('Gelöscht')}return closeSheet()}
     if(x.dataset.x==='save'){
       const de=$('#ede').value.trim(),en=$('#een').value.trim();if(!de||!en)return toast('Deutsch und Englisch ausfüllen');
-      Object.assign(w,{de,en,ex:$('#eex').value.trim()||undefined,note:$('#eno').value.trim()||undefined});if($('#etp')){w.topic=$('#etp').value||undefined}
+      Object.assign(w,{de,en,ex:$('#eex').value.trim()||undefined,note:$('#eno').value.trim()||undefined});if($('#etp')){w.topic=$('#etp').value||undefined}if($('#eal'))w.alt=$('#eal').value.trim();
       if(w.orig&&w.orig.de===de&&w.orig.en===en)delete w.orig;
       Store.saveLesson(l);toast('Gespeichert');closeSheet();
     }
@@ -1859,6 +1917,8 @@ document.addEventListener('click',async e=>{
     case 'claude':sheetClaude(S.tab==='lessons'&&S.view&&S.view.lesson||null,v||null);break;
     case 'examples':sheetExamples(S.view.lesson);break;
     case 'examplesall':sheetExamplesAll();break;
+    case 'meaningsall':sheetMeanings();break;
+    case 'meanings':sheetMeanings(S.view.lesson);break;
     case 'addkind':S.addKind=v;render();break;
     case 'bulk':sheetBulk();break;
     case 'saveproj':{const st=set();st.claudeProject=$('#projurl').value.trim();Store.saveMeta('settings',st);toast('Gespeichert');break}
@@ -1888,7 +1948,7 @@ document.addEventListener('click',async e=>{
 function doCheck(){
   const s=S.ses,it=s.q[s.idx],w=curWord(it),st=s.state;const inp=$('#wr');const val=inp?inp.value:'';
   if(!val.trim()){inp&&inp.focus();return}
-  const target=it.type==='cloze'?clozeParts(w.ex).ans:(it.type==='dict'||it.dir==='de-en')?w.en:w.de;
+  const target=it.type==='cloze'?clozeParts(w.ex).ans:(it.type==='dict'||it.dir==='de-en')?w.en:deAll(w);
   const r=checkWritten(val,target,it.type==='cloze'||it.type==='dict'||it.dir==='de-en'?'en':'de');
   st.done=true;st.ok=r.ok;st.exact=r.exact;st.input=val;answer(r.ok);render();autoSpeakAfter(it);
 }
