@@ -116,7 +116,7 @@ Claude wird **nur geöffnet, wenn du einen Claude-Knopf antippst**; die App selb
 </p>
 
 - **🔔 Tägliche Erinnerung** als Push-Mitteilung zur gewählten Uhrzeit (optional eine zweite) – **nur, wenn du an dem Tag noch nicht geübt hast**. Mit Anzahl der Wörter, Serie und Wort des Tages. Auf dem iPhone: App über *Teilen → Zum Home-Bildschirm* anlegen und von dort öffnen (iOS 16.4+).
-- **📱 Widget** für Home- und Sperrbildschirm über die kostenlose App *Scriptable*: Wörter für heute, Serie, Fortschritt, **Wort des Tages**. Antippen öffnet die Web-App (über einen Kurzbefehl mit `webapp://…`) oder den Browser. Einrichtung Schritt für Schritt unter *Mehr → Widget*. Das Skript immer aus der App kopieren, die über die **öffentliche Adresse** (https://…) geöffnet ist – sonst funktioniert das Widget nur im Heimnetz (die App warnt dann).
+- **📱 Widget** für Home- und Sperrbildschirm über die kostenlose App *Scriptable*: Wörter für heute, Serie, Fortschritt, **Wort des Tages**. Antippen öffnet die Web-App (über einen Kurzbefehl mit `webapp://…`) oder den Browser. Einrichtung Schritt für Schritt unter *Mehr → Widget*. Das Skript immer aus der App kopieren, die über die **öffentliche Adresse** (https://…) geöffnet ist – sonst funktioniert das Widget nur im Heimnetz (die App warnt dann). Öffnet der Kurzbefehl eine **andere Web-App**, verwechselt iOS die Web-Apps auf dem Home-Bildschirm (passiert z. B. mit einer zweiten selbst gehosteten Web-App) – die andere entfernen oder beim Widget „Browser“ wählen.
 
 ---
 
