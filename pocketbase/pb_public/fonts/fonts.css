@@ -1,7 +1,6 @@
 /* Lokal ausgelieferte Schriften (keine Verbindung zu Google).
-   Atkinson Hyperlegible © Braille Institute of America, Fraunces © The Fraunces Project Authors.
-   Beide unter SIL Open Font License 1.1 – siehe ../legal/OFL-*.txt.
-   Quelle: Fontsource (@fontsource/atkinson-hyperlegible 5.3.0, @fontsource-variable/fraunces 5.3.0), Subset „latin“. */
-@font-face{font-family:'Atkinson Hyperlegible';font-style:normal;font-weight:400;font-display:swap;src:url(atkinson-400.woff2) format('woff2')}
-@font-face{font-family:'Atkinson Hyperlegible';font-style:normal;font-weight:700;font-display:swap;src:url(atkinson-700.woff2) format('woff2')}
-@font-face{font-family:'Fraunces';font-style:normal;font-weight:100 900;font-display:swap;src:url(fraunces-var.woff2) format('woff2-variations'),url(fraunces-var.woff2) format('woff2')}
+   Inter © The Inter Project Authors, Plus Jakarta Sans © The Plus Jakarta Sans Project Authors.
+   Beide unter SIL Open Font License 1.1 (frei, auch kommerziell) – siehe ../legal/OFL-*.txt.
+   Quelle: Fontsource (@fontsource-variable/inter 5.3.0, @fontsource-variable/plus-jakarta-sans 5.3.0), Subset „latin“. */
+@font-face{font-family:'Inter';font-style:normal;font-weight:100 900;font-display:swap;src:url(inter-var.woff2) format('woff2-variations'),url(inter-var.woff2) format('woff2')}
+@font-face{font-family:'Plus Jakarta Sans';font-style:normal;font-weight:200 800;font-display:swap;src:url(jakarta-var.woff2) format('woff2-variations'),url(jakarta-var.woff2) format('woff2')}

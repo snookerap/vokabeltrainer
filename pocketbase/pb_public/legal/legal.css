@@ -1,9 +1,9 @@
 @import url(../fonts/fonts.css);
-:root{--bg:#f5f1ea;--card:#fffdf9;--ink:#1d2430;--muted:#6a6f78;--line:#e4ddd1;--acc:#0e6e64}
-@media (prefers-color-scheme:dark){:root{--bg:#12161b;--card:#1b2128;--ink:#ebe7e0;--muted:#9aa1ab;--line:#2b333d;--acc:#4fc1b2}}
-html,body{margin:0;background:var(--bg);color:var(--ink);font-family:'Atkinson Hyperlegible',system-ui,sans-serif;font-size:17px;line-height:1.5}
+:root{--bg:#f5f7fb;--card:#fff;--ink:#0d1b36;--muted:#5d6880;--line:#e1e6ef;--acc:#012169}
+@media (prefers-color-scheme:dark){:root{--bg:#0b1020;--card:#141b2d;--ink:#e8ecf4;--muted:#97a1b5;--line:#252f47;--acc:#8ba6f2}}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:'Inter',system-ui,-apple-system,sans-serif;font-size:17px;line-height:1.5}
 main{max-width:720px;margin:0 auto;padding:max(20px,env(safe-area-inset-top)) 18px 48px}
-h1,h2{font-family:'Fraunces',Georgia,serif;letter-spacing:-.01em;line-height:1.2}
+h1,h2{font-family:'Plus Jakarta Sans',system-ui,sans-serif;font-weight:800;letter-spacing:-.02em;line-height:1.2}
 h1{font-size:30px;margin:8px 0 4px}h2{font-size:21px;margin:28px 0 8px}
 p,li{margin:6px 0}ul{padding-left:20px}
 a{color:var(--acc)}

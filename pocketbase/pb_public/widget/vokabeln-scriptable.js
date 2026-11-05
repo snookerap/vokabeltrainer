@@ -4,7 +4,7 @@
 const API = "__API__";   // wird von der App beim Kopieren eingesetzt
 const APP = "__APP__";
 
-const TEAL = new Color("#0e6e64"), GOLD = new Color("#f2c14e"), WHITE = Color.white(), SOFT = new Color("#ffffff", 0.72);
+const TEAL = new Color("#012169"), GOLD = new Color("#ff6b81"), WHITE = Color.white(), SOFT = new Color("#ffffff", 0.72);
 const fm = FileManager.local();
 const CACHE = fm.joinPath(fm.documentsDirectory(), "vokabeln-widget.json");
 

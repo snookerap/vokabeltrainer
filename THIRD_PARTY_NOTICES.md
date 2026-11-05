@@ -8,8 +8,8 @@ Der Code des Vokabeltrainers selbst steht unter der MIT-Lizenz (siehe `LICENSE`)
 |---|---|---|---|
 | PocketBase JS SDK – © 2022 – present, Gani Georgiev | 0.28.1 | MIT | `pb_public/legal/LICENSE-pocketbase-js-sdk.txt` |
 | SheetJS Community Edition (`@e965/xlsx`) – © 2013 – present, SheetJS LLC | 0.20.3 | Apache-2.0 | `pb_public/legal/LICENSE-sheetjs-apache-2.0.txt` |
-| Atkinson Hyperlegible (Fontsource, Subset latin) – © 2020 Braille Institute of America | 5.3.0 | SIL OFL 1.1 | `pb_public/legal/OFL-AtkinsonHyperlegible.txt` |
-| Fraunces Variable (Fontsource, Subset latin) – © 2020 The Fraunces Project Authors | 5.3.0 | SIL OFL 1.1 | `pb_public/legal/OFL-Fraunces.txt` |
+| Inter Variable (Fontsource, Subset latin) – © 2016 The Inter Project Authors | 5.3.0 | SIL OFL 1.1 | `pb_public/legal/OFL-Inter.txt` |
+| Plus Jakarta Sans Variable (Fontsource, Subset latin) – © 2020 The Plus Jakarta Sans Project Authors | 5.3.0 | SIL OFL 1.1 | `pb_public/legal/OFL-PlusJakartaSans.txt` |
 
 Beide Dateien sind unverändert. Das SDK hat nur einen Lizenz-Kopfkommentar erhalten.
 
