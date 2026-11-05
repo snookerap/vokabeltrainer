@@ -144,7 +144,7 @@ details summary{cursor:pointer;font-weight:700;padding:6px 0}
 <script src="pocketbase.umd.js"></script>
 <script>
 'use strict';
-const APP_VERSION='1.16.1 (04.11.2026)';
+const APP_VERSION='1.17.0 (05.11.2026)';
 /* ---------- helpers ---------- */
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
@@ -738,6 +738,7 @@ function viewMore(){
     <p class="small muted" style="margin:6px 0 0">So viele noch nie geübte Wörter kommen täglich zu den Wiederholungen dazu – zuerst aus den neuesten Stunden, dann rückwärts durch ältere. Heute schon: ${newToday()}.</p></div>
   ${viewReminder()}
   ${viewWidget()}
+  ${(()=>{const n=examplesTodo().length;return n?`<div class="card"><h3>Beispielsätze</h3><p class="small muted">${n} Wörter haben noch keinen Satz. Claude schreibt sie in Paketen zu je ${EX_BATCH} Wörtern über alle Stunden.</p><button class="btn full" data-act="examplesall">✍️ Sätze für alle Stunden holen (${n})</button></div>`:''})()}
   <div class="card"><h3>Claude-Projekt</h3><p class="small muted">Optional: Link zu deinem Claude-Projekt. Dann erscheint beim Üben mit Claude der Knopf „In meinem Englisch-Projekt öffnen“.</p>
     <div class="row"><input class="t grow" id="projurl" value="${esc(st.claudeProject||DEFAULT_PROJECT)}" placeholder="https://claude.ai/project/…" autocapitalize="off"><button class="btn" data-act="saveproj">OK</button></div></div>
   <div class="card"><h3>Sichern</h3><p class="small muted">Der Export enthält alle Stunden, Wörter, deinen Lernstand und die Clip-Zuordnungen. Die MP3s selbst liegen auf dem Server im Ordner data/ – den bitte mitsichern.</p>
@@ -1011,6 +1012,53 @@ ${ws.map(w=>`${w.id}: ${ttsText(w.en)} (= ${w.de})`).join('\n')}`;
       let n=0;for(const w of l.words){const v=obj[w.id];if(typeof v==='string'&&v.includes('[')&&v.includes(']')&&!w.ex){w.ex=v.trim();n++}}
       if(!n)return toast('Keine passenden Sätze gefunden','err');
       Store.saveLesson(l);toast(n+' Beispielsätze übernommen');closeSheet();
+    }
+  };
+}
+
+/* ---------- Beispielsätze für alle Stunden – in Paketen ---------- */
+const EX_BATCH=80;
+// alle Wörter ohne Satz, neueste Stunden zuerst, gleiche Wörter nur einmal
+function examplesTodo(){
+  const seen=new Set(),out=[];
+  for(const l of lessonsSorted())for(const w of l.words||[]){if(!needsExample(w))continue;const k=wkey(w);if(seen.has(k))continue;seen.add(k);out.push({lid:l.id,w})}
+  return out;
+}
+function parseNumbered(raw){
+  const o=parseExamples(raw);if(o&&Object.keys(o).some(k=>/^\d+$/.test(k)))return o;
+  const t=String(raw||'');const r={};let n=0,x;const re=/["'„“”]?(\d{1,3})["'“”]?\s*[:.)]\s*["“”„](.+?)["“”](?=\s*(?:,|\}|\n|$))/g;
+  while((x=re.exec(t))){r[x[1]]=x[2].trim();n++}
+  return n?r:null;
+}
+function sheetExamplesAll(){
+  const todo=examplesTodo();if(!todo.length)return toast('Alle Wörter haben schon einen Beispielsatz');
+  const batch=todo.slice(0,EX_BATCH);
+  const text=`Schreib mir bitte für jede dieser englischen Vokabeln einen kurzen, einfachen Beispielsatz (Niveau A2–B1, gern aus Arbeit, Sport oder Alltag). Markiere die Vokabel im Satz mit eckigen Klammern, z. B. "Learning a language needs a lot of [patience]." Die Vokabel darf im Satz gebeugt sein (z. B. [meetings], [went]).
+
+Antworte NUR mit einem JSON-Objekt in einem JSON-Codeblock, ohne weitere Erklärung, im Format {"Nummer": "Satz"}. Verwende gerade Anführungszeichen ("):
+
+${batch.map((it,i)=>`${i+1}: ${ttsText(it.w.en)} (= ${it.w.de})`).join('\n')}`;
+  const packs=Math.ceil(todo.length/EX_BATCH);
+  const root=openSheet(`<div class="row"><div class="grow"><h2>✍️ Sätze für alle Stunden</h2><div class="sub">${todo.length} Wörter ohne Satz · noch ${packs} ${packs===1?'Paket':'Pakete'} · jetzt ${batch.length} Wörter, neueste Stunden zuerst</div></div><button class="btn icon" data-x="close">✕</button></div>
+    <p class="small"><b>1.</b> Claude schreibt die Sätze:</p>
+    <div class="row" style="gap:8px"><button class="btn pri grow" data-x="ask">💬 In Claude öffnen</button><button class="btn grow" data-x="copy">📋 Text kopieren</button></div>
+    <p class="small" style="margin-top:14px"><b>2.</b> Claudes Antwort kopieren und hier einfügen:</p>
+    <textarea class="t" id="exans" placeholder='{"1": "Learning a language needs a lot of [patience]."}'></textarea>
+    <button class="btn full" style="margin-top:10px" data-x="apply">Sätze übernehmen${packs>1?' & nächstes Paket':''}</button>`);
+  root.onclick=async e=>{const x=e.target.closest('[data-x]');if(e.target.classList.contains('scrim'))return closeSheet();if(!x)return;
+    if(x.dataset.x==='close')return closeSheet();
+    if(x.dataset.x==='ask')return openClaude(text,'new');
+    if(x.dataset.x==='copy'){try{await navigator.clipboard.writeText(text);toast('Text kopiert')}catch(err){toast('Kopieren nicht möglich – bitte „In Claude öffnen“ nutzen','err')}return}
+    if(x.dataset.x==='apply'){
+      const obj=parseNumbered($('#exans').value);
+      if(!obj)return toast('Keine Sätze gefunden – bitte Claudes komplette Antwort einfügen','err');
+      const byKey={};batch.forEach((it,i)=>{const v=obj[String(i+1)];if(typeof v==='string'&&v.includes('[')&&v.includes(']'))byKey[wkey(it.w)]=v.trim()});
+      if(!Object.keys(byKey).length)return toast('Keine passenden Sätze gefunden','err');
+      let n=0;const ch=new Set();
+      for(const l of lessonsSorted())for(const w of l.words||[]){const v=byKey[wkey(w)];if(v&&!w.ex&&!isNote(w)){w.ex=v;n++;ch.add(l)}}
+      for(const l of ch)await Store.saveLesson(l);
+      toast(n+' Beispielsätze übernommen');closeSheet();
+      if(examplesTodo().length)setTimeout(sheetExamplesAll,300);else render();
     }
   };
 }
@@ -1806,6 +1854,7 @@ document.addEventListener('click',async e=>{
     case 'speakskip':{const st=s.state;if(!st.done){st.done=true;st.ok=false;answer(false)}render();playWord(s.q[s.idx].lid,s.q[s.idx].wid);break}
     case 'claude':sheetClaude(S.tab==='lessons'&&S.view&&S.view.lesson||null,v||null);break;
     case 'examples':sheetExamples(S.view.lesson);break;
+    case 'examplesall':sheetExamplesAll();break;
     case 'addkind':S.addKind=v;render();break;
     case 'bulk':sheetBulk();break;
     case 'saveproj':{const st=set();st.claudeProject=$('#projurl').value.trim();Store.saveMeta('settings',st);toast('Gespeichert');break}

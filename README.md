@@ -104,6 +104,7 @@ Ein selbst gehosteter Vokabeltrainer fürs Handy, gemacht für Englischkurse: Vo
   - „Zurück“ nimmt den letzten Schritt bzw. die letzte Seite zurück.
 - **💬 Mit Claude üben:** öffnet ein Rollenspiel auf claude.ai mit deinen Wörtern (aus der Stunde, schwierige, zuletzt falsche …) und einer Situation aus Arbeit oder Freizeit. Optional direkt in deinem Claude-Projekt.
 - **✍️ Sätze holen:** Claude schreibt Beispielsätze für Wörter ohne Satz – Antwort einfügen, fertig.
+- **✍️ Sätze für alle Stunden holen** (unter *Mehr*): nach einem großen Import alle fehlenden Beispielsätze in Paketen zu 80 Wörtern – Text an Claude, Antwort einfügen, das nächste Paket öffnet sich von selbst. Gleiche Wörter in mehreren Stunden bekommen denselben Satz.
 
 Claude wird **nur geöffnet, wenn du einen Claude-Knopf antippst**; die App selbst schickt nichts an KI-Dienste.
 
