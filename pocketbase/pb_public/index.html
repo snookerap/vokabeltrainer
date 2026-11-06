@@ -146,7 +146,7 @@ details summary{cursor:pointer;font-weight:700;padding:6px 0}
 <script src="pocketbase.umd.js"></script>
 <script>
 'use strict';
-const APP_VERSION='1.19.1 (06.11.2026)';
+const APP_VERSION='1.20.0 (06.11.2026)';
 /* ---------- helpers ---------- */
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
@@ -1261,7 +1261,7 @@ function startSort(opt={}){
   const q=sortItems(opt.lid);
   if(!q.length)return toast(opt.lid?'In dieser Stunde ist schon alles sicher':'Keine ungeübten Wörter zum Vorsortieren');
   freshAudio();
-  S.sort={q,idx:0,hist:[],known:0,show:false,mode:opt.lid?'list':(set().sortMode||'list'),lid:opt.lid||null,sel:new Set(),pageSize:opt.lid?q.length:SORT_PAGE};
+  S.sort={q,idx:0,hist:[],known:0,show:false,mode:opt.lid?'list':(set().sortMode||'list'),lid:opt.lid||null,sel:new Set(),pageSize:opt.lid?q.length:SORT_PAGE,selK:new Set(),open:new Set(),qry:''};
   if(opt.lid)q.forEach((_,i)=>S.sort.sel.add(i)); // ganze Stunde: alles vormarkiert, nur Unbekanntes abwählen
   render();
 }
@@ -1281,7 +1281,45 @@ function sortApply(){
 function sortUndo(){
   const s=S.sort;const h=s.hist.pop();if(!h)return;
   for(const [lid,wid,old] of h.touched.slice().reverse()){if(old)S.progress[lid].w[wid]=old;else delete S.progress[lid].w[wid];Store.saveProgress(lid)}
-  s.known-=h.known;s.idx-=h.count;s.sel=new Set(h.sel||[]);s.show=false;render();
+  s.known-=h.known;
+  if(h.selK){s.q=sortItems();s.idx=0;s.selK=new Set(h.selK);render();return}
+  s.idx-=h.count;s.sel=new Set(h.sel||[]);s.show=false;render();
+}
+/* Übersicht aller Stunden (aufklappbar) – nur markierte Wörter werden übernommen */
+const sKey=it=>it.lid+'|'+it.w.id;
+function sortGroups(s){
+  const by=new Map();const q=normAns(s.qry||'','de');
+  for(const it of s.q){if(q&&!(normAns(it.w.en,'en').includes(q)||normAns(it.w.de,'de').includes(q)||it.w.en.toLowerCase().includes(q)))continue;
+    if(!by.has(it.lid))by.set(it.lid,[]);by.get(it.lid).push(it)}
+  return lessonsSorted().filter(l=>by.has(l.id)).map(l=>({l,items:by.get(l.id)}));
+}
+function sortAccHtml(s){
+  const gs=sortGroups(s);if(!gs.length)return `<p class="muted center" style="padding:20px 0">${s.qry?'Nichts gefunden':'Keine Wörter mehr zum Sortieren'}</p>`;
+  return gs.map(({l,items})=>{const open=s.qry||s.open.has(l.id);const k=items.filter(it=>s.selK.has(sKey(it))).length;const all=k===items.length;
+    return `<div class="list" style="margin-bottom:8px">
+      <div class="li" style="padding:0;min-height:52px;gap:0"><button class="grow" data-act="sortopen" data-v="${l.id}" style="all:unset;flex:1;min-width:0;padding:12px 14px;cursor:pointer;display:flex;align-items:center;gap:10px">
+        <span style="width:14px;flex:none;color:var(--muted)">${open?'▾':'▸'}</span><span style="min-width:0"><div class="en">${esc(l.name)}</div><div class="de">${items.length} ${items.length===1?'Wort':'Wörter'}${k?` · <b style="color:var(--ok)">${k} ✓</b>`:''}</div></span></button>
+        <button class="btn ghost" style="min-height:40px;margin-right:8px;padding:6px 10px;flex:none" data-act="sortlall" data-v="${l.id}">${all?'⬜️ keine':'✅ alle'}</button></div>
+      ${open?items.map(it=>{const on=s.selK.has(sKey(it));return `<button class="li" data-act="sortk" data-v="${sKey(it)}" style="min-height:50px;${on?'background:var(--ok-soft)':''}"><span style="font-size:20px;width:24px;flex:none">${on?'✅':'⬜️'}</span><span class="grow" style="min-width:0"><div class="en">${esc(it.w.en)}</div><div class="de">${esc(it.w.de)}</div></span></button>`}).join(''):''}
+    </div>`}).join('');
+}
+function sortFootHtml(s){const n=s.selK.size;
+  return `<button class="btn pri full" style="min-height:56px" data-act="sortapplyk" ${n?'':'disabled'}>${n?`Übernehmen · ${n} gekannt`:'Tippe an, was du schon kannst'}</button>
+    <div class="row" style="margin-top:6px"><button class="btn ghost" data-act="sortundo" ${s.hist.length?'':'disabled'}>↶ Zurück</button><div class="grow"></div><button class="btn ghost" data-act="sortend">Fertig</button></div>`}
+function sortAccUpdate(){const s=S.sort;const a=$('#sortacc'),f=$('#sortfoot');if(!a||!f)return render();a.innerHTML=sortAccHtml(s);f.innerHTML=sortFootHtml(s)}
+function viewSortAcc(s){
+  return `<div class="ses">${sortHead(s)}
+    <p class="small muted" style="margin:0 0 8px">Stunde antippen zum Aufklappen. Markiere nur, was du <b>schon kannst</b> – alles andere bleibt einfach unsortiert.</p>
+    <input class="t" id="sortq" type="search" placeholder="🔍 Wort suchen (EN oder DE)" value="${esc(s.qry||'')}" style="margin-bottom:10px" autocomplete="off">
+    <div id="sortacc">${sortAccHtml(s)}</div>
+    <div id="sortfoot" style="position:sticky;bottom:-16px;background:var(--bg);padding:8px 0 calc(16px + env(safe-area-inset-bottom));margin-bottom:-16px">${sortFootHtml(s)}</div>
+  </div>`;
+}
+function sortApplyK(){
+  const s=S.sort;const touched=[];let k=0;
+  for(const it of s.q)if(s.selK.has(sKey(it))){touched.push(...setProg(it.lid,it.w.id,knownProg()));k++}
+  if(!k)return;s.hist.push({touched,known:k,selK:[...s.selK]});s.known+=k;s.selK=new Set();s.q=sortItems();s.idx=0;
+  Store.flushProgress();toast(`${k} Wörter als gekannt markiert`);const el=$('.ses'),y=el?el.scrollTop:0;render();const e2=$('.ses');if(e2)e2.scrollTop=y;
 }
 function sortDone(s){
   Store.flushProgress();const done=s.idx;
@@ -1292,12 +1330,14 @@ function sortDone(s){
 }
 function sortHead(s){
   const l=s.lid&&S.lessons[s.lid];
-  return `<div class="row" style="padding:14px 0 4px"><button class="btn icon ghost" data-act="sortend" aria-label="Beenden">✕</button><div class="prog"><i style="width:${s.idx/s.q.length*100}%"></i></div><span class="small muted">${s.idx}/${s.q.length}</span></div>
+  const acc=s.mode==='list'&&!s.lid;
+  return `<div class="row" style="padding:14px 0 4px"><button class="btn icon ghost" data-act="sortend" aria-label="Beenden">✕</button>${acc?`<div class="grow"><b>Kenn ich schon?</b></div><span class="small muted">${s.q.length} unsortiert</span>`:`<div class="prog"><i style="width:${s.idx/s.q.length*100}%"></i></div><span class="small muted">${s.idx}/${s.q.length}</span>`}</div>
     <div class="row" style="margin:4px 0 8px"><div class="small muted grow">${s.known} gekannt${l?' · '+esc(l.name):''}</div>
     ${s.lid?'':`<div class="seg" style="width:170px">${[['list','☰ Liste'],['card','🃏 Karten']].map(([v,t])=>`<button data-act="sortmode" data-v="${v}" class="${s.mode===v?'on':''}" style="min-height:34px;padding:4px">${t}</button>`).join('')}</div>`}</div>`;
 }
 function viewSort(){
   const s=S.sort;if(s.idx>=s.q.length)return sortDone(s);
+  if(s.mode==='list'&&!s.lid)return viewSortAcc(s);
   return s.mode==='list'?viewSortList(s):viewSortCard(s);
 }
 function viewSortList(s){
@@ -1311,7 +1351,7 @@ function viewSortList(s){
     <p class="small muted" style="margin:0 0 8px">${s.lid?'Alle Wörter sind markiert – tippe die an, die du <b>noch nicht</b> kannst.':'Tippe alle an, die du <b>schon kannst</b>. Die übrigen lernst du nach und nach.'}</p>
     <div class="row" style="gap:8px;margin-bottom:8px"><button class="btn grow" style="min-height:42px" data-act="sortall">✅ Alle</button><button class="btn grow" style="min-height:42px" data-act="sortnone">⬜️ Keine</button></div>
     <div class="list">${rows}</div>
-    <div style="position:sticky;bottom:0;background:var(--bg);padding:8px 0 4px">
+    <div style="position:sticky;bottom:-16px;background:var(--bg);padding:8px 0 calc(16px + env(safe-area-inset-bottom));margin-bottom:-16px">
       <button class="btn pri full" style="min-height:56px" data-act="sortapply">Übernehmen · ${nSel} gekannt${s.lid?'':`, ${n-nSel} lernen`}</button>
       <div class="row" style="margin-top:6px"><button class="btn ghost" data-act="sortundo" ${s.hist.length?'':'disabled'}>↶ Zurück</button><div class="grow"></div><button class="btn ghost" data-act="sortend">Fertig</button></div></div>
   </div>`;
@@ -1765,7 +1805,8 @@ PA.addEventListener('loadedmetadata',plTick);
   if('mediaSession' in navigator)try{navigator.mediaSession.playbackState=PA.paused?'paused':'playing'}catch(e){}}));
 PA.addEventListener('ended',()=>{const P=S.player;if(!P||P.loading||PA.src.startsWith('data:'))return;
   if(P.idx<P.q.length-1){P.idx++;plLoad(true)}else if(P.loop){P.idx=0;if(P.q.length===1){PA.currentTime=0;PA.play().catch(()=>{})}else plLoad(true)}else render()});
-document.addEventListener('input',e=>{if(e.target.id==='plpos'&&PA.duration)PA.currentTime=e.target.value/1000*PA.duration});
+document.addEventListener('input',e=>{if(e.target.id==='sortq'&&S.sort){S.sort.qry=e.target.value.trim();sortAccUpdate();return}
+  if(e.target.id==='plpos'&&PA.duration)PA.currentTime=e.target.value/1000*PA.duration});
 document.addEventListener('wheel',e=>{if(e.target.closest&&e.target.closest('#pltx'))plScrollAt=Date.now()},{passive:true});
 document.addEventListener('touchmove',e=>{if(e.target.closest&&e.target.closest('#pltx'))plScrollAt=Date.now()},{passive:true});
 
@@ -1878,7 +1919,11 @@ document.addEventListener('click',async e=>{
     case 'sortall':{const s=S.sort;for(let i=s.idx;i<Math.min(s.q.length,s.idx+s.pageSize);i++)s.sel.add(i);const y=$('.ses').scrollTop;render();$('.ses').scrollTop=y;break}
     case 'sortnone':{const s=S.sort;for(let i=s.idx;i<s.idx+s.pageSize;i++)s.sel.delete(i);const y=$('.ses').scrollTop;render();$('.ses').scrollTop=y;break}
     case 'sortapply':sortApply();break;
-    case 'sortmode':{S.sort.mode=v;S.sort.show=false;const st=set();if(st.sortMode!==v){st.sortMode=v;Store.saveMeta('settings',st)}render();break}
+    case 'sortapplyk':sortApplyK();break;
+    case 'sortopen':{const o=S.sort.open;if(o.has(v))o.delete(v);else o.add(v);sortAccUpdate();break}
+    case 'sortk':{const k=S.sort.selK;if(k.has(v))k.delete(v);else k.add(v);sortAccUpdate();break}
+    case 'sortlall':{const s=S.sort;const g=sortGroups(s).find(x=>x.l.id===v);if(!g)break;const keys=g.items.map(sKey);const all=keys.every(k=>s.selK.has(k));keys.forEach(k=>all?s.selK.delete(k):s.selK.add(k));if(!all&&!s.qry)s.open.add(v);sortAccUpdate();break}
+    case 'sortmode':{if(S.sort.mode!==v){S.sort.q=sortItems();S.sort.idx=0;S.sort.hist=[];S.sort.selK=new Set()}S.sort.mode=v;S.sort.show=false;const st=set();if(st.sortMode!==v){st.sortMode=v;Store.saveMeta('settings',st)}render();break}
     case 'lessonsort':startSort({lid:S.view.lesson});break;
     case 'probe':startProbe(S.view.lesson);break;
     case 'probeans':probeAnswer(v==='1');break;

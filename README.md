@@ -98,7 +98,7 @@ Ein selbst gehosteter Vokabeltrainer fürs Handy, gemacht für Englischkurse: Vo
 - **KI-Stimme (Piper)** für jedes Wort, erzeugt auf deinem Server. 7 frei lizenzierte Stimmen zur Wahl (britisch/amerikanisch, weiblich/männlich) mit **Hörprobe**. Beim Üben bevorzugt *Lehrer* oder *KI* – der zweite Knopf spielt jeweils die andere Stimme.
 - **🏷️ Themen** (Technik & Kabel, Vertrieb & Kunden, Meetings, Zahlen & Wirtschaft, Reisen, Sport & Freizeit, Gefühle & Charakter, Gesellschaft, Alltag, Sätze & Grammatik): beim Üben filtern; neue Stunden per **„Themen holen“** über Claude zuordnen.
 - **⚡ Kenn ich schon?** Große Wortbestände schnell vorsortieren – nach Stunden gruppiert:
-  - **Liste** (Standard): 20 Wörter pro Seite, Überschrift je Stunde. Gekannte antippen oder **✅ Alle** und nur die unbekannten wieder abwählen, dann *Übernehmen*. Gekannte kommen erst in 30 Tagen zur Kontrolle.
+  - **Liste** (Standard): alle Stunden als aufklappbare Übersicht mit Wortzahl – auch die ältesten sind direkt erreichbar. Gekannte Wörter antippen oder pro Stunde **✅ alle**, dann *Übernehmen*. Nur Markiertes wird übernommen, der Rest bleibt unsortiert (jederzeit weitermachen). Mit **Suchfeld** (englisch oder deutsch) über alle Stunden. Gekannte kommen erst in 30 Tagen zur Kontrolle.
   - **Karten**: ein Wort nach dem anderen – Knopf oder **wischen** (→ kenn ich, ← lernen).
   - In jeder Stunde: **✓ Als gekannt markieren** (alle Wörter vormarkiert, Unbekanntes abwählen) und **🎯 Stichprobe** (5 Zufallswörter; alle gewusst → auf Wunsch die ganze Stunde als gekannt markieren).
   - „Zurück“ nimmt den letzten Schritt bzw. die letzte Seite zurück.
