@@ -146,7 +146,7 @@ details summary{cursor:pointer;font-weight:700;padding:6px 0}
 <script src="pocketbase.umd.js"></script>
 <script>
 'use strict';
-const APP_VERSION='1.19.0 (05.11.2026)';
+const APP_VERSION='1.19.1 (06.11.2026)';
 /* ---------- helpers ---------- */
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
@@ -301,7 +301,11 @@ function ttsOf(w){return w?S.tts[set().voice+'|'+ttsText(w.en)]||null:null}
 function hasClip(l,w){return !!clipOf(w)}
 let elAudio=null,elTimer=null,elUnlocked=false;
 // Bei jedem Tippen: Audio wach halten (iOS stellt es sonst still) und das Ausweich-Audio freischalten
+// Nach einem App-Wechsel meldet iOS die Audioausgabe oft als „läuft“, sie bleibt aber stumm
+// (vor allem wenn die andere App selbst Ton hatte, z. B. DeepL). Beim ersten Tippen danach komplett neu aufbauen.
+let audioStale=false;
 function keepAudioAlive(){
+  if(audioStale){audioStale=false;try{ctx&&ctx.close()}catch(e){}ctx=null;elUnlocked=false;try{navigator.audioSession&&(navigator.audioSession.type='auto')}catch(e){}actx()}
   if(ctx&&ctx.state!=='running'&&ctx.state!=='closed'){try{ctx.resume()}catch(e){}}
   if(!elUnlocked){elUnlocked=true;try{if(!elAudio)elAudio=new Audio();elAudio.src=SILENT;const p=elAudio.play();if(p)p.then(()=>elAudio.pause()).catch(()=>{elUnlocked=false})}catch(e){elUnlocked=false}}
 }
@@ -642,10 +646,12 @@ function mcOptions(it,w,field){
   let pool=shuffle(sameLesson);
   if(pool.length<6)pool=pool.concat(shuffle(allItems(Object.keys(S.lessons)).map(i=>i.w).filter(x=>x.id!==w.id&&!isNote(x))));
   const seen=new Set([normAns(w[field],field)]);const out=[w[field]];
-  const mine=new Set(field==='de'?variants(deAll(w),'de'):variants(w.en,'en'));
+  const mine=new Set(field==='de'?variants(deAll(w),'de'):variants(w.en,'en'));const used=new Set();
   for(const x of pool){const n=normAns(x[field],field);if(!x[field]||seen.has(n))continue;
-    if(variants(field==='de'?x.de:x.en,field).some(v=>mine.has(v)))continue; // wäre auch richtig
-    seen.add(n);out.push(x[field]);if(out.length>=4)break}
+    const xv=variants(field==='de'?x.de:x.en,field);
+    if(xv.some(v=>mine.has(v)))continue; // wäre auch richtig
+    if(xv.some(v=>used.has(v)))continue; // zwei Falschantworten mit gleichem Wort (z. B. zweimal „passend“)
+    xv.forEach(v=>used.add(v));seen.add(n);out.push(x[field]);if(out.length>=4)break}
   return shuffle(out);
 }
 function viewSummary(){
@@ -1984,7 +1990,8 @@ function addWord(){
   render();$('#ade').focus();toast('Gespeichert in '+l.name);
 }
 window.addEventListener('pagehide',()=>Store.flushProgress());
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')Store.flushProgress();else checkUpdate()});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'){Store.flushProgress();audioStale=true;stopAudio()}else checkUpdate()});
+window.addEventListener('pagehide',()=>{audioStale=true});
 setTimeout(()=>checkUpdate(),3000);
 if('serviceWorker' in navigator)swReg(); // nur für Erinnerungen
 
