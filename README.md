@@ -102,7 +102,9 @@ Ein selbst gehosteter Vokabeltrainer fürs Handy, gemacht für Englischkurse: Vo
   - **Karten**: ein Wort nach dem anderen – Knopf oder **wischen** (→ kenn ich, ← lernen).
   - In jeder Stunde: **✓ Als gekannt markieren** (alle Wörter vormarkiert, Unbekanntes abwählen) und **🎯 Stichprobe** (5 Zufallswörter; alle gewusst → auf Wunsch die ganze Stunde als gekannt markieren).
   - „Zurück“ nimmt die letzte Übernahme bzw. die letzte Karte zurück.
-- **💬 Mit Claude üben:** öffnet ein Rollenspiel auf claude.ai mit deinen Wörtern (aus der Stunde, schwierige, zuletzt falsche …) und einer Situation aus Arbeit oder Freizeit. Optional direkt in deinem Claude-Projekt.
+- **💬 Mit Claude üben:** öffnet claude.ai mit deinen Wörtern (aus der Stunde, schwierige, zuletzt falsche …), optional direkt in deinem Claude-Projekt. Zwei Übungsarten:
+  - **📖 Wort-Training** (Standard nach einer Übung mit Fehlern): Claude schreibt eine kurze Geschichte mit deinen Wörtern, dann neue Lückensätze, dann schreibst du eigene Sätze – mit kurzer Korrektur und am Ende dem Hinweis, welche Wörter jetzt sitzen.
+  - **🎭 Rollenspiel** in einer Situation aus Arbeit oder Freizeit.
 - **✍️ Sätze holen:** Claude schreibt Beispielsätze für Wörter ohne Satz – Antwort einfügen, fertig.
 - **📖 Weitere Bedeutungen:** Viele Vokabeln haben mehrere Bedeutungen (z. B. *account for* = ausmachen · auch: erklären, berücksichtigen). Sie stehen in der Stundenliste, erscheinen nach jeder Antwort als „auch: …“ und **zählen beim Eintippen als richtig**; bei der Auswahl taucht keine andere richtige Bedeutung als Falschantwort auf. Claude ergänzt sie per Knopf (*Mehr* oder pro Stunde, Pakete zu 200 Wörtern), von Hand geht es im Bearbeiten-Fenster.
 - **✍️ Sätze für alle Stunden holen** (unter *Mehr*): nach einem großen Import alle fehlenden Beispielsätze in Paketen zu 80 Wörtern – Text an Claude, Antwort einfügen, das nächste Paket öffnet sich von selbst. Gleiche Wörter in mehreren Stunden bekommen denselben Satz.

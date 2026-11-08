@@ -146,7 +146,7 @@ details summary{cursor:pointer;font-weight:700;padding:6px 0}
 <script src="pocketbase.umd.js"></script>
 <script>
 'use strict';
-const APP_VERSION='1.20.0 (06.11.2026)';
+const APP_VERSION='1.21.0 (08.11.2026)';
 /* ---------- helpers ---------- */
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
@@ -661,7 +661,7 @@ function viewSummary(){
     <div class="card hero center"><div class="big">${pct}%</div><div class="sub">${streak()?'🔥 '+streak()+' Tag(e) in Folge':''}</div></div>
     ${mist?`<h3 style="margin:16px 0 8px">Das üben wir nochmal</h3><div class="list">${mist}</div>`:''}
     <div class="spacer"></div>
-    ${mist?`<button class="btn pri full" data-act="redo">Fehler nochmal üben</button><div style="height:10px"></div><button class="btn full" data-act="claude" data-v="mistakes">💬 Fehler im Gespräch mit Claude üben</button><div style="height:10px"></div>`:''}
+    ${mist?`<button class="btn pri full" data-act="redo">Fehler nochmal üben</button><div style="height:10px"></div><button class="btn full" data-act="claude" data-v="mistakes">💬 Mit Claude üben – Geschichte, Lückensätze, eigene Sätze</button><div style="height:10px"></div>`:''}
     <button class="btn full" data-act="quit">Fertig</button></div>`;
 }
 
@@ -947,10 +947,26 @@ function claudeWords(source,lid){
   else if(source==='mistakes')items=(S.lastMistakes||[]).map(m=>({w:curWordBy(m.lid,m.wid)})).filter(i=>i.w);
   else items=allItems(Object.keys(S.lessons)).filter(i=>status(i.p)==='l');
   const seen=new Set();const out=[];
-  for(const i of shuffle(items)){if(isNote(i.w))continue;const t=ttsText(i.w.en);if(!t||seen.has(t))continue;seen.add(t);out.push(t);if(out.length>=10)break}
+  for(const i of shuffle(items)){if(isNote(i.w))continue;const t=ttsText(i.w.en);if(!t||seen.has(t))continue;seen.add(t);out.push({en:t,de:deAll(i.w)});if(out.length>=10)break}
   return out;
 }
+// Wort-Training: Geschichte → Lückensätze → eigene Sätze – um die Wörter im Zusammenhang zu verstehen
+function claudeTrainPrompt(words){
+  return `Hilf mir bitte, diese englischen Vokabeln wirklich zu verstehen – sie sitzen noch nicht. Mein Niveau ist A2, ich lerne gerade auf B1. Beispiele aus Beruf, Sport und Alltag passen gut.
+
+Meine Wörter:
+${words.map(w=>`- ${w.en} (= ${w.de})`).join('\n')}
+
+Wir üben in drei Schritten, immer nur ein Schritt pro Nachricht – warte jeweils auf meine Antwort:
+1. Geschichte: Schreib eine kurze, einfache Geschichte (6–8 Sätze), in der alle Wörter vorkommen. Markiere sie **fett**. Frag mich danach bei 3 Wörtern, was sie in diesem Satz auf Deutsch bedeuten.
+2. Lückensätze: Gib mir für jedes Wort einen NEUEN Satz mit einer Lücke ___ (Wörter gemischt, nicht in der Liste oben). Ich schreibe das passende Wort hinein.
+3. Eigene Sätze: Bitte mich, mit jedem Wort einen eigenen Satz zu schreiben.
+
+Korrigiere mich nach jeder Antwort kurz am Ende auf Deutsch. Wenn ein Wort mehrere Bedeutungen hat, zeig mir den Unterschied mit einem Beispiel. Zum Schluss: Welche Wörter sitzen jetzt, welche sollte ich nochmal üben? Fang mit Schritt 1 an.`;
+}
 function claudePrompt(words,sit){
+  if(sit==='train')return claudeTrainPrompt(words);
+  words=words.map(w=>w.en);
   const pool=sit==='work'?SITUATIONS.work:sit==='free'?SITUATIONS.free:SITUATIONS.work.concat(SITUATIONS.free);
   const situation=pool[Math.floor(Math.random()*pool.length)];
   return `Lass uns ein Rollenspiel auf Englisch machen. Mein Niveau ist A2, ich lerne gerade auf B1.
@@ -969,14 +985,15 @@ function openClaude(text,where){
   if(copied)copied.then(()=>toast(where==='project'?'Text kopiert – im Projekt einfügen':'Text kopiert – falls er nicht drinsteht: einfügen')).catch(()=>{});
 }
 function sheetClaude(lid,source){
-  let src=source||(lid?'lesson':'learning'),sit='surprise';
+  let src=source||(lid?'lesson':'learning'),sit=source==='mistakes'?'train':'surprise';
   const draw=()=>{
     const words=claudeWords(src,lid);const text=claudePrompt(words,sit);
     const sb=(key,cur,opts)=>`<div class="seg">${opts.map(([v,t])=>`<button data-k="${key}" data-v="${v}" class="${cur===v?'on':''}">${t}</button>`).join('')}</div>`;
     const srcOpts=[...(lid?[['lesson','Diese Stunde']]:[]),...(S.lastMistakes&&S.lastMistakes.length?[['mistakes','Meine Fehler']]:[]),['hard','Schwierige'],['learning','Am Lernen']];
-    const root=openSheet(`<div class="row"><div class="grow"><h2>💬 Mit Claude üben</h2><div class="sub">Rollenspiel mit deinen Vokabeln</div></div><button class="btn icon" data-x="close">✕</button></div>
+    const root=openSheet(`<div class="row"><div class="grow"><h2>💬 Mit Claude üben</h2><div class="sub">${sit==='train'?'Wörter im Zusammenhang verstehen':'Rollenspiel mit deinen Vokabeln'}</div></div><button class="btn icon" data-x="close">✕</button></div>
       <label class="f">Welche Wörter</label>${sb('src',src,srcOpts)}
-      <label class="f">Situation</label>${sb('sit',sit,[['work','Arbeit'],['free','Freizeit'],['surprise','Überrasch mich']])}
+      <label class="f">Übungsart</label>${sb('kind',sit==='train'?'train':'role',[['train','📖 Wort-Training'],['role','🎭 Rollenspiel']])}
+      ${sit==='train'?`<p class="small muted" style="margin:8px 0 0">Kurze Geschichte mit deinen Wörtern → Lückensätze → eigene Sätze, Claude korrigiert dich.</p>`:`<label class="f">Situation</label>${sb('sit',sit,[['work','Arbeit'],['free','Freizeit'],['surprise','Überrasch mich']])}`}
       <div class="card small" style="margin-top:12px;white-space:pre-wrap;max-height:28vh;overflow:auto">${words.length?esc(text):'<span class="muted">Für diese Auswahl gibt es noch keine Wörter.</span>'}</div>
       <div class="stack"><button class="btn pri full" data-x="new" ${words.length?'':'disabled'}>💬 Neuen Chat in Claude öffnen</button>
       ${set().claudeProject||DEFAULT_PROJECT?`<button class="btn full" data-x="project" ${words.length?'':'disabled'}>📁 In meinem Englisch-Projekt öffnen</button>`:''}
@@ -985,6 +1002,7 @@ function sheetClaude(lid,source){
     root.onclick=e=>{const x=e.target.closest('[data-x],[data-k]');if(e.target.classList.contains('scrim'))return closeSheet();if(!x)return;
       if(x.dataset.k==='src'){src=x.dataset.v;return draw()}
       if(x.dataset.k==='sit'){sit=x.dataset.v;return draw()}
+      if(x.dataset.k==='kind'){sit=x.dataset.v==='train'?'train':'surprise';return draw()}
       if(x.dataset.x==='close')return closeSheet();
       if(x.dataset.x==='redo')return draw();
       if(x.dataset.x==='new'||x.dataset.x==='project')openClaude(text,x.dataset.x);
