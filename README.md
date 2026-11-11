@@ -96,6 +96,7 @@ Ein selbst gehosteter Vokabeltrainer fürs Handy, gemacht für Englischkurse: Vo
 </p>
 
 - **KI-Stimme (Piper)** für jedes Wort, erzeugt auf deinem Server. 7 frei lizenzierte Stimmen zur Wahl (britisch/amerikanisch, weiblich/männlich) mit **Hörprobe**. Beim Üben bevorzugt *Lehrer* oder *KI* – der zweite Knopf spielt jeweils die andere Stimme.
+- **Optional: Google-Stimmen** (Chirp 3 HD, Neural2) – deutlich natürlicher und mit besserer Aussprache. Nur mit eigenem Google-Cloud-Schlüssel (`GOOGLE_TTS_KEY`, siehe [Google-Stimmen einrichten](#google-stimmen-einrichten-optional)); jedes Wort wird einmal erzeugt und auf deinem Server gespeichert.
 - **🏷️ Themen** (Technik & Kabel, Vertrieb & Kunden, Meetings, Zahlen & Wirtschaft, Reisen, Sport & Freizeit, Gefühle & Charakter, Gesellschaft, Alltag, Sätze & Grammatik): beim Üben filtern; neue Stunden per **„Themen holen“** über Claude zuordnen.
 - **⚡ Kenn ich schon?** Große Wortbestände schnell vorsortieren – nach Stunden gruppiert:
   - **Liste** (Standard): alle Stunden als aufklappbare Übersicht mit Wortzahl – auch die ältesten sind direkt erreichbar. Gekannte Wörter antippen oder pro Stunde **✅ alle**, dann *Übernehmen*. Nur Markiertes wird übernommen, der Rest bleibt unsortiert (jederzeit weitermachen). Mit **Suchfeld** (englisch oder deutsch) über alle Stunden. Gekannte kommen erst in 30 Tagen zur Kontrolle.
@@ -109,7 +110,7 @@ Ein selbst gehosteter Vokabeltrainer fürs Handy, gemacht für Englischkurse: Vo
 - **📖 Weitere Bedeutungen:** Viele Vokabeln haben mehrere Bedeutungen (z. B. *account for* = ausmachen · auch: erklären, berücksichtigen). Sie stehen in der Stundenliste, erscheinen nach jeder Antwort als „auch: …“ und **zählen beim Eintippen als richtig**; bei der Auswahl taucht keine andere richtige Bedeutung als Falschantwort auf. Claude ergänzt sie per Knopf (*Mehr* oder pro Stunde, Pakete zu 200 Wörtern), von Hand geht es im Bearbeiten-Fenster.
 - **✍️ Sätze für alle Stunden holen** (unter *Mehr*): nach einem großen Import alle fehlenden Beispielsätze in Paketen zu 80 Wörtern – Text an Claude, Antwort einfügen, das nächste Paket öffnet sich von selbst. Gleiche Wörter in mehreren Stunden bekommen denselben Satz.
 
-Claude wird **nur geöffnet, wenn du einen Claude-Knopf antippst**; die App selbst schickt nichts an KI-Dienste.
+Claude wird **nur geöffnet, wenn du einen Claude-Knopf antippst**; die App selbst schickt nichts an KI-Dienste. Ausnahme, nur wenn du sie einrichtest: Die Google-Stimmen bekommen die englischen Vokabeln und Beispielsätze zum Einsprechen.
 
 ### Erinnerung & Widget
 
@@ -237,6 +238,16 @@ Enthält die Excel eurer Lehrkraft immer dieselben Tippfehler, kann der Import s
 ```json
 [["Excel-Deutsch", "Excel-Englisch", "richtiges Deutsch", "richtiges Englisch"]]
 ```
+
+## Google-Stimmen einrichten (optional)
+
+1. In der [Google Cloud Console](https://console.cloud.google.com) ein Projekt anlegen und die **Abrechnung** aktivieren (Google verlangt das auch für das Gratis-Kontingent). Empfehlung: unter *Abrechnung → Budgets und Benachrichtigungen* ein Budget von 1 € mit E-Mail-Warnung anlegen.
+2. **Cloud Text-to-Speech API** aktivieren.
+3. *APIs & Dienste → Anmeldedaten → Anmeldedaten erstellen → API-Schlüssel*, dann den Schlüssel auf **Cloud Text-to-Speech API** einschränken.
+4. In die `.env`: `GOOGLE_TTS_KEY=…`, danach `docker compose up -d`.
+5. In der App unter *Mehr → KI-Stimme* erscheinen nach spätestens einer Minute die Google-Stimmen mit Hörprobe.
+
+Zum Verbrauch: Ein Kurs mit rund 2.000 Wörtern braucht beim ersten Einsprechen etwa 20.000–30.000 Zeichen, danach pro Stunde nur ein paar hundert. Google hat für jede Stimmenklasse ein monatliches Gratis-Kontingent (aktuelle Werte auf der [Preisseite](https://cloud.google.com/text-to-speech/pricing)). Jeder Stimmenwechsel spricht alle Wörter neu ein. Meldet Google einen Fehler (z. B. Schlüssel falsch, Kontingent erschöpft), zeigt die App ihn bei der Stimmenwahl an; vorhandene Aufnahmen bleiben erhalten, der Server versucht es stündlich neu. Die Nutzung unterliegt den Bedingungen von Google Cloud.
 
 ## Feinabstimmung (`.env`)
 

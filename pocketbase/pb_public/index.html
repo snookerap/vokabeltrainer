@@ -146,7 +146,7 @@ details summary{cursor:pointer;font-weight:700;padding:6px 0}
 <script src="pocketbase.umd.js"></script>
 <script>
 'use strict';
-const APP_VERSION='1.21.0 (08.11.2026)';
+const APP_VERSION='1.22.0 (11.11.2026)';
 /* ---------- helpers ---------- */
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
@@ -189,7 +189,7 @@ const Store={
     S.progress={};pr.forEach(r=>{this.ids.progress[r.key]=r.id;S.progress[r.key]={w:r.w||{}}});
     S.meta={};me.forEach(r=>{this.ids.meta[r.key]=r.id;S.meta[r.key]=r.data||{}});
     S.recs={};rc.forEach(r=>S.recs[r.id]=r);
-    S.tts={};tt.forEach(r=>S.tts[r.voice+'|'+r.text]=r);
+    S.tts={};tt.sort((a,b)=>String(a.created||'').localeCompare(String(b.created||''))).forEach(r=>S.tts[r.voice+'|'+r.text]=r); // neueste gewinnt (Stimmenwechsel)
   },
   putLesson(r){this.ids.lessons[r.key]=r.id;S.lessons[r.key]={id:r.key,name:r.name,date:r.date,dated:r.dated,order:r.order,words:Array.isArray(r.words)?r.words:[]}},
   subscribe(){
@@ -198,7 +198,7 @@ const Store={
     pb.collection('progress').subscribe('*',e=>{const k=e.record.key;if(e.action==='delete'){delete S.progress[k];return soft()}this.ids.progress[k]=e.record.id;if(!S.dirty.has(k))S.progress[k]={w:e.record.w||{}};soft()});
     pb.collection('meta').subscribe('*',e=>{this.ids.meta[e.record.key]=e.record.id;S.meta[e.record.key]=e.record.data||{};soft()});
     pb.collection('recordings').subscribe('*',e=>{if(e.action==='delete')delete S.recs[e.record.id];else S.recs[e.record.id]=e.record;soft()});
-    pb.collection('tts').subscribe('*',e=>{const r=e.record;if(e.action==='delete')delete S.tts[r.voice+'|'+r.text];else S.tts[r.voice+'|'+r.text]=r;soft()});
+    pb.collection('tts').subscribe('*',e=>{const r=e.record;if(e.action==='delete'){const k=r.voice+'|'+r.text;if(S.tts[k]&&S.tts[k].id===r.id)delete S.tts[k]}else S.tts[r.voice+'|'+r.text]=r;soft()});
   },
   q(path,fn){
     const p=(this.qs[path]||Promise.resolve()).then(fn).catch(e=>{console.error(e);
@@ -1155,18 +1155,24 @@ const VOICE_LIST=[
   ['en_US-john-medium','en-US','🇺🇸','John','amerikanisch · männlich',0],
   ['en_US-bryce-medium','en-US','🇺🇸','Bryce','amerikanisch · männlich',0],
   ['en_US-norman-medium','en-US','🇺🇸','Norman','amerikanisch · männlich',0]];
+// Google-Stimmen (nur wenn auf dem Server GOOGLE_TTS_KEY eingetragen ist – der Worker meldet sie in meta 'ttsinfo')
+function googleVoices(){const g=S.meta.ttsinfo;if(!g||!g.google)return [];
+  return (g.voices||[]).map(v=>[v.id,v.lang,v.lang==='en-GB'?'🇬🇧':'🇺🇸',v.name,`${v.lang==='en-GB'?'britisch':'amerikanisch'}${v.gender?' · '+v.gender:''} · Google ${v.kind==='Chirp3-HD'?'Chirp 3 HD':v.kind}`,0,'google'])}
+const allVoices=()=>googleVoices().concat(VOICE_LIST);
 // gewählte Stimme: ausdrücklich gewählt, sonst Standard der Sprache (Cori bzw. Linda)
-function curVoiceModel(){const st=set();const m=st.voiceModel;const v=VOICE_LIST.find(x=>x[0]===m&&x[1]===st.voice);return v?v[0]:(VOICE_LIST.find(x=>x[1]===st.voice&&x[5])||VOICE_LIST[0])[0]}
+function curVoiceModel(){const st=set();const m=st.voiceModel;const v=allVoices().find(x=>x[0]===m&&x[1]===st.voice);return v?v[0]:(VOICE_LIST.find(x=>x[1]===st.voice&&x[5])||VOICE_LIST[0])[0]}
 function viewVoices(){
-  const cur=curVoiceModel();
-  return `<div class="list" style="margin:0">${VOICE_LIST.map(([m,lang,flag,name,desc])=>{const smp=S.tts['sample|'+m];
+  const cur=curVoiceModel();const g=S.meta.ttsinfo||{};const gv=googleVoices();
+  const row=([m,lang,flag,name,desc])=>{const smp=S.tts['sample|'+m];
     return `<div class="li" style="min-height:54px;padding:8px 12px"><button class="grow" style="background:none;border:0;text-align:left;padding:0;display:flex;gap:10px;align-items:center" data-act="voicepick" data-v="${m}">
       <span style="font-size:20px;width:22px">${m===cur?'✅':'⚪️'}</span><span><div class="en">${flag} ${esc(name)}</div><div class="de">${esc(desc)}</div></span></button>
-      ${smp?`<button class="btn icon" data-act="voicesample" data-v="${m}" aria-label="Hörprobe">▶</button>`:''}</div>`}).join('')}</div>`;
+      ${smp?`<button class="btn icon" data-act="voicesample" data-v="${m}" aria-label="Hörprobe">▶</button>`:''}</div>`};
+  const err=g.google&&g.error?`<p class="small" style="background:var(--bad-soft);padding:10px 12px;border-radius:12px;margin:0 0 10px">⚠️ Google-Stimme: ${esc(g.error)}<br><span class="muted">Neue Wörter bekommen erst wieder Ton, wenn das behoben ist (der Server versucht es stündlich).</span></p>`:'';
+  return `${err}${gv.length?`<div class="small muted" style="margin:0 0 6px">Google (Cloud) – sehr natürlich</div><div class="list" style="margin:0 0 12px">${(S.allG?gv:gv.filter((v,i)=>i<6||v[0]===cur)).map(row).join('')}${gv.length>6?`<button class="li" data-act="allg" style="justify-content:center;min-height:44px"><span class="small">${S.allG?'Weniger anzeigen':`Alle ${gv.length} Google-Stimmen anzeigen`}</span></button>`:''}</div><div class="small muted" style="margin:0 0 6px">Lokal auf deinem Server (Piper)</div>`:''}<div class="list" style="margin:0">${VOICE_LIST.map(row).join('')}</div>`;
 }
 async function voiceSample(m){const r=S.tts['sample|'+m];if(!r)return;actx();try{await playBuf(await getBuf(r,'file'))}catch(e){try{await playElement(r,'file')}catch(x){toast('Hörprobe nicht abspielbar','err')}}}
-function voicePick(m){const v=VOICE_LIST.find(x=>x[0]===m);if(!v)return;const st=set();if(st.voiceModel===m&&st.voice===v[1])return;
-  st.voiceModel=m;st.voice=v[1];Store.saveMeta('settings',st);render();toast(`Stimme ${v[3]} gewählt – der Server spricht jetzt alle Wörter neu ein (dauert ein paar Minuten)`);}
+function voicePick(m){const v=allVoices().find(x=>x[0]===m);if(!v)return;const st=set();if(st.voiceModel===m&&st.voice===v[1])return;
+  st.voiceModel=m;st.voice=v[1];Store.saveMeta('settings',st);render();toast(v[6]==='google'?`Google-Stimme ${v[3]} gewählt – der Server lässt alle Wörter einmal neu einsprechen (dauert etwas)`:`Stimme ${v[3]} gewählt – der Server spricht jetzt alle Wörter neu ein (dauert ein paar Minuten)`);}
 
 /* ---------- Tägliche Erinnerung (Web-Push) ---------- */
 const isIOS=/iPhone|iPad|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
@@ -1986,6 +1992,7 @@ document.addEventListener('click',async e=>{
     case 'claude':sheetClaude(S.tab==='lessons'&&S.view&&S.view.lesson||null,v||null);break;
     case 'examples':sheetExamples(S.view.lesson);break;
     case 'examplesall':sheetExamplesAll();break;
+    case 'allg':S.allG=!S.allG;render();break;
     case 'meaningsall':sheetMeanings();break;
     case 'meanings':sheetMeanings(S.view.lesson);break;
     case 'addkind':S.addKind=v;render();break;

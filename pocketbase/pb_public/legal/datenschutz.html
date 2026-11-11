@@ -38,6 +38,7 @@
 <h2>Weitere Empfänger</h2>
 <ul>
   <li id="proxy" hidden></li>
+  <li id="gtts" hidden><b>Google Cloud Text-to-Speech:</b> Für die KI-Stimme werden die englischen Vokabeln und Beispielsätze (keine Konto- oder Lerndaten) an Google LLC übermittelt und dort in Sprache umgewandelt. Mehr dazu: <a href="https://cloud.google.com/terms/cloud-privacy-notice" rel="noopener">Datenschutzhinweis von Google Cloud</a>.</li>
   <li><b>Push-Dienst des Geräteherstellers:</b> Erinnerungen werden verschlüsselt über den Push-Dienst deines Geräts zugestellt (beim iPhone Apple, bei Android Google). Der Dienst sieht die Push-Adresse und den Zeitpunkt, aber nicht den Inhalt.</li>
   <li><b>Claude (Anthropic):</b> Nur wenn du selbst einen der Claude-Knöpfe antippst (z. B. „Mit Claude üben“, „Sätze holen“ oder die Prüfung beim Excel-Import), öffnet die App claude.ai mit einem vorausgefüllten Text, der die Vokabeln enthält. Automatisch wird nichts übertragen. Danach gelten die Bedingungen deines eigenen Claude-Kontos.</li>
 </ul>
@@ -56,6 +57,7 @@ fetch('/api/legal').then(r=>r.ok?r.json():{}).then(d=>{
   if(d&&d.name)t('opname',': '+d.name);
   if(d&&d.contact)t('opcontact',' · Kontakt: '+d.contact);
   if(!d||(!d.name&&!d.contact))t('opname',' (Name und Kontakt sind noch nicht eingetragen)');
+  if(d&&d.google)document.getElementById('gtts').hidden=false;
   const px=document.getElementById('proxy');
   if(d&&/cloudflare/i.test(d.proxy||'')){px.innerHTML='<b>Cloudflare:</b> Die App ist über Cloudflare erreichbar. Deshalb läuft der Datenverkehr einschließlich deiner IP-Adresse über Server von Cloudflare, Inc. (USA). Mehr dazu: <a href="https://www.cloudflare.com/privacypolicy/" rel="noopener">Datenschutzerklärung von Cloudflare</a>.';px.hidden=false}
   else if(d&&d.proxy){px.innerHTML='<b></b> Die App ist über diesen Dienstleister erreichbar. Deshalb läuft der Datenverkehr einschließlich deiner IP-Adresse über dessen Server.';px.firstChild.textContent=d.proxy+':';px.hidden=false}

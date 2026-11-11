@@ -33,6 +33,10 @@ Beide Dateien sind unverändert. Das SDK hat nur einen Lizenz-Kopfkommentar erha
 
 Piper ist GPL-lizenziert. Es läuft unverändert im Worker-Container, und die App liefert nur die erzeugten MP3-Dateien aus, also keine Weitergabe der Software. Wer das **Docker-Image selbst weitergibt**, muss die GPL-Pflichten erfüllen: Quellcode-Hinweis <https://github.com/OHF-Voice/piper1-gpl>.
 
+## Google Cloud Text-to-Speech (optional)
+
+Nur aktiv, wenn `GOOGLE_TTS_KEY` gesetzt ist. Die Stimmen sind ein Cloud-Dienst von Google LLC und werden nicht mitgeliefert; ihre Nutzung unterliegt den Nutzungsbedingungen von Google Cloud im Konto des jeweiligen Betreibers.
+
 ## Stimmen (Piper)
 
 | Stimme | Datensatz | Lizenz |

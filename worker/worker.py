@@ -12,6 +12,7 @@ Er spricht nur über die PocketBase-API mit dem Admin-Konto (aus der .env) und i
 von außen nicht erreichbar.
 """
 import hashlib
+import base64
 import json
 import logging
 import os
@@ -21,6 +22,8 @@ import tempfile
 import threading
 import time
 import unicodedata
+import urllib.error
+import urllib.parse
 import urllib.request
 import wave
 from difflib import SequenceMatcher
@@ -65,12 +68,76 @@ VOICE_CHOICES = {
 
 
 def voice_model(st):
-    """Gewählte Stimme aus den App-Einstellungen (nur aus der freien Liste), sonst Standard aus der .env."""
+    """Gewählte Stimme aus den App-Einstellungen (freie Piper-Liste oder Google, falls Schlüssel da), sonst Standard aus der .env."""
     voice = st.get("voice") or "en-GB"
     m = st.get("voiceModel")
     if m in VOICE_CHOICES and VOICE_CHOICES[m] == voice:
         return voice, m
+    if m and m.startswith("google:") and GOOGLE_KEY and m[7:12] == voice:
+        return voice, m
     return voice, VOICES.get(voice, VOICES["en-GB"])
+
+
+# ---------------------------------------------------------------- Google Cloud Text-to-Speech (optional)
+# Nur aktiv mit GOOGLE_TTS_KEY in der .env. Jedes Wort wird einmal erzeugt und in PocketBase gespeichert.
+GOOGLE_KEY = os.environ.get("GOOGLE_TTS_KEY", "").strip()
+GOOGLE_API = os.environ.get("GOOGLE_TTS_API", "https://texttospeech.googleapis.com/v1")
+GOOGLE_FAIL = {"until": 0, "error": ""}
+
+
+class GoogleTTSError(Exception):
+    pass
+
+
+def google_req(path, body=None):
+    url = f"{GOOGLE_API}{path}{'&' if '?' in path else '?'}key={urllib.parse.quote(GOOGLE_KEY)}"
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"} if data else {})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        try:
+            msg = json.loads(e.read().decode()).get("error", {}).get("message", "")
+        except Exception:
+            msg = ""
+        raise GoogleTTSError(f"HTTP {e.code}: {msg or e.reason}")
+    except Exception as e:
+        raise GoogleTTSError(str(e))
+
+
+def google_voices():
+    """Britische und amerikanische Google-Stimmen der guten Klassen (Chirp 3 HD, Neural2)."""
+    out = []
+    for lang in ("en-GB", "en-US"):
+        for v in google_req(f"/voices?languageCode={lang}").get("voices", []):
+            n = v.get("name", "")
+            kind = "Chirp3-HD" if "Chirp3-HD" in n else "Neural2" if "Neural2" in n else None
+            if not kind or not n.startswith(lang):
+                continue
+            g = (v.get("ssmlGender") or "").upper()
+            out.append({"id": "google:" + n, "lang": lang, "name": n.split("-")[-1], "kind": kind,
+                        "gender": "weiblich" if g == "FEMALE" else "männlich" if g == "MALE" else ""})
+    out.sort(key=lambda x: (x["lang"] != "en-GB", x["kind"] != "Chirp3-HD", x["name"]))
+    # amerikanisch nur eine kleine Auswahl, damit die Liste übersichtlich bleibt (und Hörproben wenig Zeichen kosten)
+    us = [v for v in out if v["lang"] == "en-US" and v["kind"] == "Chirp3-HD"][:4]
+    return [v for v in out if v["lang"] == "en-GB"] + us
+
+
+def google_mp3(text, model, out_raw):
+    name = model[7:]
+    lang = name[:5]
+    body = {"input": {"text": text}, "voice": {"languageCode": lang, "name": name},
+            "audioConfig": {"audioEncoding": "MP3", "sampleRateHertz": 24000}}
+    if "Chirp3-HD" not in name:
+        body["audioConfig"]["speakingRate"] = 0.95
+    r = google_req("/text:synthesize", body)
+    with open(out_raw, "wb") as f:
+        f.write(base64.b64decode(r["audioContent"]))
+
+
+def google_failing():
+    return GOOGLE_FAIL["until"] > time.time()
 PIPER_SPEED = float(os.environ.get("PIPER_LENGTH_SCALE", "1.05"))
 FAKE = os.environ.get("FAKE_AI") == "1"  # nur für Tests ohne Modelle
 
@@ -282,7 +349,10 @@ def piper_voice(name):
 def synth_mp3(text, voice_name, out_mp3):
     with tempfile.TemporaryDirectory() as td:
         wav = os.path.join(td, "a.wav")
-        if FAKE:
+        if voice_name.startswith("google:"):
+            wav = os.path.join(td, "g.mp3")
+            google_mp3(text, voice_name, wav)
+        elif FAKE:
             subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=f=440:d=0.6", wav], check=True)
         else:
             v = piper_voice(voice_name)
@@ -374,6 +444,12 @@ def tts_loop():
 def ensure_samples(pb):
     """Hörproben der wählbaren Stimmen einmal vom Piper-Projekt holen und lokal in PocketBase ablegen."""
     have = {r["text"] for r in pb.full_list("tts", pb_filter_eq("voice", "sample"))}
+    if GOOGLE_KEY:
+        ensure_google(pb, have)
+    else:  # Schlüssel entfernt: Google-Stimmen in der App ausblenden
+        lessons, progress, meta, ids = load_state(pb)
+        if (meta.get("ttsinfo") or {}).get("google"):
+            save_meta(pb, ids, "ttsinfo", {"google": False, "voices": [], "error": ""})
     for name in VOICE_CHOICES:
         if name in have:
             continue
@@ -391,8 +467,49 @@ def ensure_samples(pb):
         log.info("Hörprobe für Stimme %s gespeichert", name)
 
 
+def ensure_google(pb, have):
+    """Google-Stimmen abfragen, für die App ablegen (meta 'ttsinfo') und Hörproben einmal erzeugen."""
+    lessons, progress, meta, ids = load_state(pb)
+    try:
+        voices = google_voices()
+        info = {"google": True, "voices": voices, "error": GOOGLE_FAIL["error"] if google_failing() else ""}
+    except GoogleTTSError as e:
+        log.warning("Google-Stimmen nicht abrufbar: %s", e)
+        info = {"google": True, "voices": (meta.get("ttsinfo") or {}).get("voices") or [], "error": str(e)}
+        voices = []
+    if {k: v for k, v in (meta.get("ttsinfo") or {}).items() if k != "updated"} != info:
+        save_meta(pb, ids, "ttsinfo", dict(info, updated=int(time.time() * 1000)))
+    for v in voices:
+        if v["id"] in have:
+            continue
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                mp3 = os.path.join(td, "sample.mp3")
+                synth_mp3("Hello! Let's learn some new words today.", v["id"], mp3)
+                with open(mp3, "rb") as f:
+                    pb.req("POST", "/api/collections/tts/records", data={"key": "sample-" + v["id"].replace(":", "-"), "text": v["id"], "voice": "sample"},
+                           files={"file": ("sample.mp3", f, "audio/mpeg")})
+        except GoogleTTSError as e:
+            log.warning("Google-Hörprobe %s fehlgeschlagen: %s", v["id"], e)
+            return
+
+
+def google_error(pb, err):
+    """Google meldet einen Fehler (z. B. Schlüssel falsch, Kontingent): eine Stunde Pause, Fehler in der App zeigen."""
+    GOOGLE_FAIL.update(until=time.time() + 3600, error=str(err))
+    log.warning("Google-Stimme: %s – neuer Versuch in einer Stunde", err)
+    try:
+        lessons, progress, meta, ids = load_state(pb)
+        info = dict(meta.get("ttsinfo") or {}, error=str(err), updated=int(time.time() * 1000))
+        save_meta(pb, ids, "ttsinfo", info)
+    except Exception:
+        pass
+
+
 def tts_pass(pb, limit=40):
     voice, model = voice_model(settings(pb))
+    if model.startswith("google:") and google_failing():
+        return 0  # vorhandene Aufnahmen behalten, nichts löschen
     lessons = sorted(pb.full_list("lessons"), key=lambda l: (l.get("date") or "", l.get("order") or 0), reverse=True)
     texts = []
     for l in lessons:
@@ -404,18 +521,18 @@ def tts_pass(pb, limit=40):
                 texts.append(t)
     have = {r["key"]: r for r in pb.full_list("tts", pb_filter_eq("voice", voice))}
     wanted = {hashlib.sha1(f"{voice}|{model}|{t}".encode()).hexdigest()[:32]: t for t in texts}
-    # veraltete Einträge (Wort geändert/gelöscht oder andere Stimme gewählt) aufräumen
-    for k, r in have.items():
-        if k not in wanted:
-            pb.req("DELETE", f"/api/collections/tts/records/{r['id']}")
     made = 0
     for k, t in wanted.items():
         if k in have:
             continue
         with tempfile.TemporaryDirectory() as td:
             mp3 = os.path.join(td, "tts.mp3")
-            with _lock:
-                synth_mp3(t, model, mp3)
+            try:
+                with _lock:
+                    synth_mp3(t, model, mp3)
+            except GoogleTTSError as e:
+                google_error(pb, e)
+                return made
             with open(mp3, "rb") as f:
                 pb.req("POST", "/api/collections/tts/records",
                        data={"key": k, "text": t, "voice": voice}, files={"file": ("tts.mp3", f, "audio/mpeg")})
@@ -423,7 +540,12 @@ def tts_pass(pb, limit=40):
         if made == 1 or made % 25 == 0:
             log.info("KI-Stimme (%s): %d neu erzeugt …", voice, made)
         if made >= limit:
-            break
+            return made
+    # erst wenn alles in der neuen Stimme da ist: veraltete Einträge (Wort geändert/gelöscht oder andere Stimme) aufräumen.
+    # So bleibt bei einem Fehler (z. B. Google-Kontingent) die bisherige Stimme hörbar.
+    for k, r in have.items():
+        if k not in wanted:
+            pb.req("DELETE", f"/api/collections/tts/records/{r['id']}")
     return made
 
 

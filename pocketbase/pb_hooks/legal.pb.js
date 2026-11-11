@@ -6,5 +6,6 @@ routerAdd("GET", "/api/legal", (e) => {
     name: $os.getenv("APP_OPERATOR_NAME") || "",
     contact: $os.getenv("APP_OPERATOR_CONTACT") || "",
     proxy: $os.getenv("APP_PROXY_PROVIDER") || "",
+    google: (() => { try { const r = $app.findFirstRecordByFilter("meta", "key='ttsinfo'"); return !!(JSON.parse(r.getString("data") || "{}") || {}).google; } catch (_) { return false; } })(),
   });
 });
