@@ -954,8 +954,8 @@ def _feeds(env, default):
 NEWS_FEEDS = _feeds("NEWS_FEEDS", [
     "https://www.home-assistant.io/atom.xml",
     "https://www.theverge.com/rss/smart-home/index.xml",
-    "https://www.smarthomeassistent.de/feed/",
     "https://www.simon42.com/feed/",
+    "https://haus-automatisierung.com/",  # Feed-Adresse wird automatisch gesucht
 ])
 NEWS_FEEDS_WORLD = _feeds("NEWS_FEEDS_WORLD", ["https://www.n-tv.de/politik/rss"]) if os.environ.get("NEWS_FEEDS_WORLD") != "-" else []
 NEWS_MAX_WORLD = int(os.environ.get("NEWS_MAX_WORLD", "") or 8)
@@ -1041,15 +1041,56 @@ def parse_feed(xml_bytes, source):
     return out
 
 
+_FEED_URLS = {}  # Webseite -> gefundene Feed-Adresse (einmal suchen, dann merken)
+
+
+def _get(url):
+    r = requests.get(url, timeout=30, headers={"User-Agent": "Vokabeltrainer-DailyNews/1.0"})
+    r.raise_for_status()
+    return r
+
+
+def _is_feed(content):
+    head = content[:600].lstrip().lower()
+    return head.startswith(b"<?xml") or b"<rss" in head or b"<feed" in head or b"<rdf:rdf" in head
+
+
+def load_feed(url):
+    """Feed laden. Ist die Adresse eine normale Webseite, den Feed selbst suchen:
+    erst <link rel="alternate" type="application/rss+xml|atom+xml"> im Seitenkopf, dann übliche Pfade."""
+    url = _FEED_URLS.get(url, url)
+    r = _get(url)
+    if _is_feed(r.content):
+        return r.content
+    page = r.text
+    found = []
+    for tag in re.findall(r"<link\b[^>]*>", page, re.I):
+        if re.search(r"rel=[\"']?alternate", tag, re.I) and re.search(r"(rss|atom)\+xml", tag, re.I):
+            m = re.search(r"href=[\"']([^\"']+)", tag, re.I)
+            if m:
+                found.append(urllib.parse.urljoin(url, m.group(1)))
+    root = urllib.parse.urljoin(url, "/")
+    found += [urllib.parse.urljoin(url, p) for p in ("feed/", "feed.xml", "index.xml", "rss.xml", "atom.xml")]
+    found += [urllib.parse.urljoin(root, p) for p in ("feed/", "feed.xml", "index.xml", "rss.xml", "atom.xml", "blog/feed/", "blog/index.xml")]
+    for f in dict.fromkeys(found):
+        try:
+            r2 = _get(f)
+        except Exception:
+            continue
+        if _is_feed(r2.content):
+            log.info("Feed für %s gefunden: %s", url, f)
+            _FEED_URLS[url] = f
+            return r2.content
+    raise RuntimeError("keine RSS-/Atom-Adresse auf der Seite gefunden")
+
+
 def fetch_feeds():
     """Alle Feeds laden; jede Meldung bekommt part 'A' (Smart Home) oder 'B' (Deutschland & Welt)."""
     items, errors = [], []
     for part, url in [("A", u) for u in NEWS_FEEDS] + [("B", u) for u in NEWS_FEEDS_WORLD]:
         try:
-            r = requests.get(url, timeout=30, headers={"User-Agent": "Vokabeltrainer-DailyNews/1.0"})
-            r.raise_for_status()
             src = (urllib.parse.urlparse(url).hostname or url).removeprefix("www.")
-            got = parse_feed(r.content, src)
+            got = parse_feed(load_feed(url), src)
             for it in got:
                 it["part"] = part
             log.info("News-Quelle %s: %d Meldungen", src, len(got))

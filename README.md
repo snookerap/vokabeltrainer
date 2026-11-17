@@ -114,7 +114,7 @@ Claude wird **nur geöffnet, wenn du einen Claude-Knopf antippst**; die App selb
 
 ### 📰 Daily News (optional, in Arbeit)
 
-- Jeden Morgen holt der Server die **Smart-Home-Nachrichten seit der letzten Folge** (sonst der letzten 24 Stunden) aus RSS-Feeds und lässt sie von Claude in **einfachem Englisch** (einstellbar, Standard A2) zusammenfassen. Zwei Teile: **bis zu 4 Smart-Home-Meldungen** (Home Assistant, The Verge, smarthomeassistent.de, simon42 – nur echte Smart-Home-Themen) und **2 Nachrichten aus Deutschland und der Welt** (n-tv Politik, neutral). Dazu 5 Wörter des Tages mit Übersetzung und Beispielsatz.
+- Jeden Morgen holt der Server die **Smart-Home-Nachrichten seit der letzten Folge** (sonst der letzten 24 Stunden) aus RSS-Feeds und lässt sie von Claude in **einfachem Englisch** (einstellbar, Standard A2) zusammenfassen. Zwei Teile: **bis zu 4 Smart-Home-Meldungen** (Home Assistant, The Verge, simon42, haus-automatisierung.com – nur echte Smart-Home-Themen) und **2 Nachrichten aus Deutschland und der Welt** (n-tv Politik, neutral). Dazu 5 Wörter des Tages mit Übersetzung und Beispielsatz.
 - Daraus entsteht eine **MP3 zum Anhören** (gewählte KI-Stimme, Google oder Piper) – z. B. im Auto.
 - Um 7 Uhr kommt eine **Push-Mitteilung** (an alle Geräte mit eingeschalteter Erinnerung).
 - **Sparsam:** Die Feeds werden ohne KI gefiltert, Claude bekommt nur Titel und Anriss von höchstens 15 + 8 Meldungen – genau **ein Aufruf pro Tag** mit dem kleinen Modell Haiku (wenige Cent im Monat).
@@ -265,7 +265,7 @@ Zum Verbrauch: Ein Kurs mit rund 2.000 Wörtern braucht beim ersten Einsprechen 
 4. Folge sofort erstellen (sonst automatisch ab `NEWS_TIME`, Standard 6:30): `docker compose exec worker python worker.py news`. Ein erneuter Aufruf erstellt die Folge des Tages neu.
 5. Im Worker-Log steht pro Folge, wie viele Tokens verbraucht wurden; sie stehen auch im Eintrag unter `data.usage`.
 
-Eigene Quellen: `NEWS_FEEDS` (Smart Home) und `NEWS_FEEDS_WORLD` (Deutschland & Welt, `-` = Teil aus) mit RSS- oder Atom-Adressen, durch Leerzeichen getrennt. Deutsche Quellen gehen auch – Claude schreibt trotzdem auf Englisch. Gibt es seit der letzten Folge weniger als 3 Meldungen (z. B. nach einem ruhigen Wochenende), nimmt der Server die letzten drei Tage. Feeds mit vielen Meldungen pro Tag (nur die neuesten ~20 stehen drin) werden so trotzdem lückenlos erfasst, weil die Folge jeden Morgen entsteht. Schlägt die Erstellung fehl, versucht er es bis zu dreimal im Abstand von einer Stunde.
+Eigene Quellen: `NEWS_FEEDS` (Smart Home) und `NEWS_FEEDS_WORLD` (Deutschland & Welt, `-` = Teil aus) mit RSS- oder Atom-Adressen, durch Leerzeichen getrennt – oder einfach der Adresse der Webseite, dann sucht der Server den Feed selbst. Deutsche Quellen gehen auch – Claude schreibt trotzdem auf Englisch. Gibt es seit der letzten Folge weniger als 3 Meldungen (z. B. nach einem ruhigen Wochenende), nimmt der Server die letzten drei Tage. Feeds mit vielen Meldungen pro Tag (nur die neuesten ~20 stehen drin) werden so trotzdem lückenlos erfasst, weil die Folge jeden Morgen entsteht. Schlägt die Erstellung fehl, versucht er es bis zu dreimal im Abstand von einer Stunde.
 
 ## Feinabstimmung (`.env`)
 
