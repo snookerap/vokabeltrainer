@@ -7,7 +7,7 @@ Läuft neben PocketBase und erledigt zwei Aufgaben im Hintergrund:
 
   3. Tagesübersicht (für Widget und Erinnerungen) berechnen und tägliche
      Push-Erinnerungen verschicken.
-  4. Daily News (optional, mit ANTHROPIC_API_KEY): Smart-Home-Nachrichten vom Vortag
+  4. Daily News (optional, mit ANTHROPIC_API_KEY): Smart-Home-Nachrichten seit der letzten Folge
      per RSS holen, von Claude in einfachem Englisch zusammenfassen lassen, vorlesen
      und als Folge speichern (Collection "news").
 
@@ -957,6 +957,7 @@ NEWS_SYSTEM = """You write a short daily audio news show about smart home techno
 Rules:
 - Use simple English for level {level}: short sentences (at most 12 words), common words, mostly present simple and past simple.
 - If you need a technical word, explain it in simple words the first time.
+- Only smart home topics: home automation, smart devices and sensors, lights, heating, energy and solar at home, security cameras, voice assistants, Matter, Home Assistant. Skip kitchen appliances, phones, watches, TVs and product tests that are not about the smart home.
 - Choose the most important and interesting news, at most 5. Skip ads, deals and tiny updates. Merge news about the same topic.
 - Use only facts from the given news. Never invent anything.
 - Write for listening: no lists, no symbols, no links. Write numbers so they are easy to say.
@@ -1148,17 +1149,27 @@ def make_news(pb, dry=False):
     from datetime import datetime, timedelta
     now = datetime.now(_tz(None))
     today = now.strftime("%Y-%m-%d")
-    t0 = now.replace(hour=0, minute=0, second=0, microsecond=0)
     items, errors = fetch_feeds()
-    picked, span = pick_items(items, t0 - timedelta(days=1), t0, NEWS_MAX_ITEMS), "yesterday"
-    if len(picked) < 3:  # z. B. nach einem ruhigen Sonntag
-        picked, span = pick_items(items, t0 - timedelta(days=3), t0, NEWS_MAX_ITEMS), "the last three days"
+    # Zeitraum: seit der letzten Folge (so fehlt nichts und nichts kommt doppelt), sonst die letzten 24 Stunden.
+    # Viele Feeds enthalten nur die neuesten ~20 Meldungen – ein fester „gestern“-Zeitraum verpasst dann alles.
+    start = now - timedelta(hours=24)
+    try:
+        prev = [r for r in pb.full_list("news", "status='done'") if r.get("date", "") < today]
+        if prev:
+            last = max(prev, key=lambda r: r["date"])["created"]
+            start = max(now - timedelta(days=3), datetime.fromisoformat(last.replace(" ", "T").replace("Z", "+00:00")))
+    except Exception as e:
+        log.warning("Letzte Folge nicht lesbar (%s) – nehme die letzten 24 Stunden", e)
+    picked, span = pick_items(items, start, now, NEWS_MAX_ITEMS), "the last day"
+    if len(picked) < 3:  # z. B. nach einem ruhigen Wochenende
+        start = now - timedelta(days=3)
+        picked, span = pick_items(items, start, now, NEWS_MAX_ITEMS), "the last three days"
     if dry:
-        print(f"{len(items)} Meldungen geladen, {len(picked)} ausgewählt ({span}).")
+        print(f"{len(items)} Meldungen geladen, {len(picked)} ausgewählt (ab {start.astimezone(now.tzinfo):%d.%m. %H:%M}).")
         for e in errors:
             print("FEHLER", e)
         for i, it in enumerate(picked, 1):
-            print(f"{i:2}. [{it['source']}] {it['date']:%d.%m. %H:%M}  {it['title']}")
+            print(f"{i:2}. [{it['source']}] {it['date'].astimezone(now.tzinfo):%d.%m. %H:%M}  {it['title']}")
         return None
     recs = pb.full_list("news", f"date='{today}'")
     rec = recs[0] if recs else None

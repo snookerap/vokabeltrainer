@@ -114,7 +114,7 @@ Claude wird **nur geöffnet, wenn du einen Claude-Knopf antippst**; die App selb
 
 ### 📰 Daily News (optional, in Arbeit)
 
-- Jeden Morgen holt der Server die **Smart-Home-Nachrichten vom Vortag** aus RSS-Feeds und lässt sie von Claude in **einfachem Englisch** (einstellbar, Standard A2) zusammenfassen: Titel, bis zu 5 Meldungen, 5 Wörter des Tages mit Übersetzung und Beispielsatz.
+- Jeden Morgen holt der Server die **Smart-Home-Nachrichten seit der letzten Folge** (sonst der letzten 24 Stunden) aus RSS-Feeds und lässt sie von Claude in **einfachem Englisch** (einstellbar, Standard A2) zusammenfassen – nur echte Smart-Home-Themen: Titel, bis zu 5 Meldungen, 5 Wörter des Tages mit Übersetzung und Beispielsatz.
 - Daraus entsteht eine **MP3 zum Anhören** (gewählte KI-Stimme, Google oder Piper) – z. B. im Auto.
 - Um 7 Uhr kommt eine **Push-Mitteilung** (an alle Geräte mit eingeschalteter Erinnerung).
 - **Sparsam:** Die Feeds werden ohne KI gefiltert, Claude bekommt nur Titel und Anriss von höchstens 15 Meldungen – genau **ein Aufruf pro Tag** mit dem kleinen Modell Haiku (wenige Cent im Monat).
@@ -261,11 +261,11 @@ Zum Verbrauch: Ein Kurs mit rund 2.000 Wörtern braucht beim ersten Einsprechen 
 
 1. Auf [console.anthropic.com](https://console.anthropic.com) ein Konto anlegen, unter *Billing* etwas Guthaben aufladen (z. B. 5 €) und unter *API Keys* einen Schlüssel erstellen. Das ist **nicht** das Claude-Abo – die API wird getrennt abgerechnet. Empfehlung: unter *Limits* ein kleines Monatslimit setzen.
 2. In die `.env`: `ANTHROPIC_API_KEY=…` (weitere Einstellungen siehe `.env.example`), danach `docker compose up -d --build`.
-3. Quellen prüfen, ohne Claude aufzurufen: `docker compose exec worker python worker.py news --dry` – zeigt, welche Meldungen vom Vortag gefunden werden.
+3. Quellen prüfen, ohne Claude aufzurufen: `docker compose exec worker python worker.py news --dry` – zeigt, welche Meldungen seit der letzten Folge gefunden werden.
 4. Folge sofort erstellen (sonst automatisch ab `NEWS_TIME`, Standard 6:30): `docker compose exec worker python worker.py news`. Ein erneuter Aufruf erstellt die Folge des Tages neu.
 5. Im Worker-Log steht pro Folge, wie viele Tokens verbraucht wurden; sie stehen auch im Eintrag unter `data.usage`.
 
-Eigene Quellen: `NEWS_FEEDS` mit RSS- oder Atom-Adressen, durch Leerzeichen getrennt. Deutsche Quellen gehen auch – Claude schreibt trotzdem auf Englisch. Gibt es am Vortag weniger als 3 Meldungen (z. B. nach einem Sonntag), nimmt der Server die letzten drei Tage. Schlägt die Erstellung fehl, versucht er es bis zu dreimal im Abstand von einer Stunde.
+Eigene Quellen: `NEWS_FEEDS` mit RSS- oder Atom-Adressen, durch Leerzeichen getrennt. Deutsche Quellen gehen auch – Claude schreibt trotzdem auf Englisch. Gibt es seit der letzten Folge weniger als 3 Meldungen (z. B. nach einem ruhigen Wochenende), nimmt der Server die letzten drei Tage. Feeds mit vielen Meldungen pro Tag (nur die neuesten ~20 stehen drin) werden so trotzdem lückenlos erfasst, weil die Folge jeden Morgen entsteht. Schlägt die Erstellung fehl, versucht er es bis zu dreimal im Abstand von einer Stunde.
 
 ## Feinabstimmung (`.env`)
 
