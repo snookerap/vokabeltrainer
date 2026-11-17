@@ -7,6 +7,9 @@ Läuft neben PocketBase und erledigt zwei Aufgaben im Hintergrund:
 
   3. Tagesübersicht (für Widget und Erinnerungen) berechnen und tägliche
      Push-Erinnerungen verschicken.
+  4. Daily News (optional, mit ANTHROPIC_API_KEY): Smart-Home-Nachrichten vom Vortag
+     per RSS holen, von Claude in einfachem Englisch zusammenfassen lassen, vorlesen
+     und als Folge speichern (Collection "news").
 
 Er spricht nur über die PocketBase-API mit dem Admin-Konto (aus der .env) und ist
 von außen nicht erreichbar.
@@ -346,7 +349,7 @@ def piper_voice(name):
     return _voices[name]
 
 
-def synth_mp3(text, voice_name, out_mp3):
+def synth_mp3(text, voice_name, out_mp3, length_scale=None):
     with tempfile.TemporaryDirectory() as td:
         wav = os.path.join(td, "a.wav")
         if voice_name.startswith("google:"):
@@ -359,9 +362,9 @@ def synth_mp3(text, voice_name, out_mp3):
             with wave.open(wav, "wb") as wf:
                 try:  # piper-tts >= 1.3
                     from piper import SynthesisConfig
-                    v.synthesize_wav(text, wf, syn_config=SynthesisConfig(length_scale=PIPER_SPEED))
+                    v.synthesize_wav(text, wf, syn_config=SynthesisConfig(length_scale=length_scale or PIPER_SPEED))
                 except ImportError:  # ältere piper-tts
-                    v.synthesize(text, wf, length_scale=PIPER_SPEED)
+                    v.synthesize(text, wf, length_scale=length_scale or PIPER_SPEED)
         subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", wav, "-af",
                         "silenceremove=start_periods=1:start_threshold=-50dB,areverse,silenceremove=start_periods=1:start_threshold=-50dB,areverse,adelay=60",
                         "-ac", "1", "-b:a", "64k", out_mp3], check=True)
@@ -932,10 +935,344 @@ def find_lesson(pb, key):
     return items[0] if items else None
 
 
+# ---------------------------------------------------------------- Daily News (optional)
+# Nur aktiv mit ANTHROPIC_API_KEY. Sparsam: Feeds werden ohne KI gefiltert, pro Tag gibt es genau
+# einen Claude-Aufruf mit Titel + Anriss von höchstens NEWS_MAX_ITEMS Meldungen.
+ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+ANTHROPIC_API = os.environ.get("ANTHROPIC_API", "https://api.anthropic.com/v1/messages")
+NEWS_MODEL = os.environ.get("NEWS_MODEL", "") or "claude-haiku-5-5"
+NEWS_LEVEL = os.environ.get("NEWS_LEVEL", "") or "A2"
+NEWS_TIME = os.environ.get("NEWS_TIME", "") or "06:30"   # ab dann wird die Folge erstellt
+NEWS_PUSH = os.environ.get("NEWS_PUSH", "07:00")         # Uhrzeit der Push-Mitteilung, leer = keine
+NEWS_MAX_ITEMS = int(os.environ.get("NEWS_MAX_ITEMS", "") or 15)
+NEWS_SPEED = float(os.environ.get("NEWS_LENGTH_SCALE", "") or 1.15)  # Piper: größer = langsamer
+NEWS_FEEDS = [u.strip() for u in (os.environ.get("NEWS_FEEDS", "") or " ".join([
+    "https://www.home-assistant.io/atom.xml",
+    "https://www.theverge.com/rss/smart-home/index.xml",
+    "https://www.smarthomeassistent.de/feed/",
+])).replace(",", " ").split() if u.strip()]
+
+NEWS_SYSTEM = """You write a short daily audio news show about smart home technology for a German adult who is learning English (CEFR level {level}).
+
+Rules:
+- Use simple English for level {level}: short sentences (at most 12 words), common words, mostly present simple and past simple.
+- If you need a technical word, explain it in simple words the first time.
+- Choose the most important and interesting news, at most 5. Skip ads, deals and tiny updates. Merge news about the same topic.
+- Use only facts from the given news. Never invent anything.
+- Write for listening: no lists, no symbols, no links. Write numbers so they are easy to say.
+
+Return only JSON, nothing else:
+{{"title": "short title for today's show, at most 8 words",
+ "intro": "1 or 2 friendly sentences",
+ "headlines": [{{"n": number of the news item you used, "title": "simple headline", "text": "2 to 4 simple sentences", "source": "source name"}}],
+ "outro": "1 short sentence",
+ "vocab": [{{"en": "useful word or phrase from your text", "de": "German translation", "ex": "a sentence from your text with the word in [square brackets]"}}]}}
+Give exactly 5 vocab items: words a {level} learner probably does not know yet."""
+
+
+def _local(tag):
+    return tag.rsplit("}", 1)[-1].lower()
+
+
+def _strip_html(s):
+    import html
+    s = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", s or "", flags=re.S | re.I)
+    s = re.sub(r"<[^>]+>", " ", s)
+    return re.sub(r"\s+", " ", html.unescape(s)).strip()
+
+
+def _parse_date(s):
+    from datetime import datetime, timezone
+    from email.utils import parsedate_to_datetime
+    s = (s or "").strip()
+    if not s:
+        return None
+    try:
+        d = parsedate_to_datetime(s)  # RSS: "Tue, 17 Nov 2026 06:00:00 +0000"
+    except Exception:
+        try:
+            d = datetime.fromisoformat(s.replace("Z", "+00:00"))  # Atom: ISO 8601
+        except Exception:
+            return None
+    return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+
+
+def parse_feed(xml_bytes, source):
+    """RSS 2.0, RSS 1.0 (RDF) und Atom -> [{title, summary, link, date, source}] (nur Standardbibliothek)."""
+    import xml.etree.ElementTree as ET
+    root = ET.fromstring(xml_bytes)
+
+    def child(el, *names):  # erster Treffer in der Reihenfolge der Namen (= Vorrang)
+        for n in names:
+            for c in el:
+                if _local(c.tag) == n:
+                    return c
+        return None
+
+    def text(el, *names):
+        c = child(el, *names)
+        return "".join(c.itertext()).strip() if c is not None else ""
+
+    out = []
+    for el in root.iter():
+        if _local(el.tag) not in ("item", "entry"):
+            continue
+        title = _strip_html(text(el, "title"))
+        link = text(el, "link")
+        if not link:  # Atom: <link rel="alternate" href="…"/>
+            links = [c for c in el if _local(c.tag) == "link"]
+            alt = [c for c in links if c.get("rel", "alternate") == "alternate"] or links
+            link = alt[0].get("href", "") if alt else ""
+        date = _parse_date(text(el, "pubdate", "published", "date", "updated"))
+        summary = _strip_html(text(el, "description", "summary", "encoded", "content"))
+        if title:
+            out.append({"title": title, "summary": summary, "link": link, "date": date, "source": source})
+    return out
+
+
+def fetch_feeds():
+    items, errors = [], []
+    for url in NEWS_FEEDS:
+        try:
+            r = requests.get(url, timeout=30, headers={"User-Agent": "Vokabeltrainer-DailyNews/1.0"})
+            r.raise_for_status()
+            src = (urllib.parse.urlparse(url).hostname or url).removeprefix("www.")
+            got = parse_feed(r.content, src)
+            log.info("News-Quelle %s: %d Meldungen", src, len(got))
+            items += got
+        except Exception as e:
+            errors.append(f"{url}: {e}")
+            log.warning("News-Quelle %s nicht lesbar: %s", url, e)
+    return items, errors
+
+
+def pick_items(items, start, end, limit):
+    """Meldungen im Zeitraum, ohne Dubletten, abwechselnd aus allen Quellen (keine Quelle dominiert)."""
+    seen, by_src = set(), {}
+    for it in sorted((i for i in items if i["date"] and start <= i["date"] < end), key=lambda i: i["date"], reverse=True):
+        k = re.sub(r"\W+", "", it["title"].lower())[:60]
+        if k in seen:
+            continue
+        seen.add(k)
+        by_src.setdefault(it["source"], []).append(it)
+    out, queues = [], list(by_src.values())
+    while queues and len(out) < limit:
+        for q in list(queues):
+            if q and len(out) < limit:
+                out.append(q.pop(0))
+            if not q:
+                queues.remove(q)
+    return out
+
+
+def claude_json(system, user, max_tokens=1500):
+    """Ein Aufruf der Claude-API, Antwort als JSON. Gibt (daten, usage) zurück."""
+    if FAKE:
+        n = len(re.findall(r"^\d+\. ", user, re.M))
+        return ({"title": "Test show", "intro": "Hello and welcome.",
+                 "headlines": [{"n": i + 1, "title": f"News {i + 1}", "text": "This is a test.", "source": "test"} for i in range(min(n, 3))],
+                 "outro": "See you tomorrow.", "vocab": [{"en": "device", "de": "Gerät", "ex": "This [device] is smart."}]},
+                {"input_tokens": 0, "output_tokens": 0})
+    body = {"model": NEWS_MODEL, "max_tokens": max_tokens, "system": system,
+            "messages": [{"role": "user", "content": user}]}
+    r = requests.post(ANTHROPIC_API, json=body, timeout=180,
+                      headers={"x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01"})
+    if r.status_code >= 400:
+        try:
+            msg = r.json().get("error", {}).get("message", "")
+        except Exception:
+            msg = r.text[:300]
+        raise RuntimeError(f"Claude-API HTTP {r.status_code}: {msg}")
+    d = r.json()
+    txt = "".join(b.get("text", "") for b in d.get("content", []) if b.get("type") == "text")
+    m = re.search(r"\{.*\}", txt, re.S)
+    if not m:
+        raise RuntimeError("Claude hat kein JSON geliefert: " + txt[:200])
+    return json.loads(m.group(0)), d.get("usage") or {}
+
+
+def _sentence(s):
+    s = (s or "").strip()
+    return s if not s or s[-1] in ".!?" else s + "."
+
+
+def news_script(d, day):
+    """Absätze für die Sprachausgabe (zwischen den Absätzen kommt eine kurze Pause)."""
+    from datetime import date
+    dt = date.fromisoformat(day)
+    parts = [f"Smart Home News for {dt.strftime('%A')}, {dt.strftime('%B')} {dt.day}.", d.get("intro")]
+    for i, h in enumerate(d.get("headlines") or [], 1):
+        parts.append(f"Story {i}. {_sentence(h.get('title'))} {h.get('text', '')}")
+    words = [v for v in d.get("vocab") or [] if v.get("en")]
+    if words:
+        parts.append("And now, five words for today.")
+        parts += [f"{_sentence(v['en'])} {(v.get('ex') or '').replace('[', '').replace(']', '')}" for v in words]
+    parts.append(d.get("outro"))
+    return [p.strip() for p in parts if p and p.strip()]
+
+
+def news_audio(pb, parts, out_mp3):
+    """Absätze einzeln einsprechen (Google-Limit pro Anfrage), mit Pausen verbinden, Lautstärke angleichen.
+    Gibt die Dauer in Sekunden zurück."""
+    voice, model = voice_model(settings(pb))
+    if model.startswith("google:") and google_failing():
+        model = VOICES.get(voice, VOICES["en-GB"])
+    with tempfile.TemporaryDirectory() as td:
+        lst, total = [], 0.0
+        sil = os.path.join(td, "pause.wav")
+        subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono",
+                        "-t", "0.8", sil], check=True)
+        for i, p in enumerate(parts):
+            mp3, wav = os.path.join(td, f"{i:02d}.mp3"), os.path.join(td, f"{i:02d}.wav")
+            try:
+                with _lock:
+                    synth_mp3(p, model, mp3, length_scale=NEWS_SPEED)
+            except GoogleTTSError as e:  # Google streikt: diese Folge mit Piper
+                google_error(pb, e)
+                model = VOICES.get(voice, VOICES["en-GB"])
+                with _lock:
+                    synth_mp3(p, model, mp3, length_scale=NEWS_SPEED)
+            subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", mp3, "-ar", "24000", "-ac", "1", wav], check=True)
+            with wave.open(wav, "rb") as wf:
+                total += wf.getnframes() / wf.getframerate() + 0.8
+            lst += [f"file '{wav}'", f"file '{sil}'"]
+        with open(os.path.join(td, "list.txt"), "w") as f:
+            f.write("\n".join(lst))
+        subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i", os.path.join(td, "list.txt"),
+                        "-af", "loudnorm=I=-16:TP=-1.5", "-ar", "24000", "-ac", "1", "-b:a", "64k", out_mp3], check=True)
+    return round(total, 1)
+
+
+def make_news(pb, dry=False):
+    """Folge für heute erstellen (bzw. neu erstellen). dry=True: nur zeigen, was die Feeds liefern."""
+    from datetime import datetime, timedelta
+    now = datetime.now(_tz(None))
+    today = now.strftime("%Y-%m-%d")
+    t0 = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    items, errors = fetch_feeds()
+    picked, span = pick_items(items, t0 - timedelta(days=1), t0, NEWS_MAX_ITEMS), "yesterday"
+    if len(picked) < 3:  # z. B. nach einem ruhigen Sonntag
+        picked, span = pick_items(items, t0 - timedelta(days=3), t0, NEWS_MAX_ITEMS), "the last three days"
+    if dry:
+        print(f"{len(items)} Meldungen geladen, {len(picked)} ausgewählt ({span}).")
+        for e in errors:
+            print("FEHLER", e)
+        for i, it in enumerate(picked, 1):
+            print(f"{i:2}. [{it['source']}] {it['date']:%d.%m. %H:%M}  {it['title']}")
+        return None
+    recs = pb.full_list("news", f"date='{today}'")
+    rec = recs[0] if recs else None
+    fields = {"date": today, "tries": (rec.get("tries") or 0) + 1 if rec else 1}
+
+    def save(files=None):
+        path = f"/api/collections/news/records/{rec['id']}" if rec else "/api/collections/news/records"
+        method = "PATCH" if rec else "POST"
+        if not files:
+            return pb.req(method, path, json=fields)
+        data = {k: json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else str(v) for k, v in fields.items()}
+        return pb.req(method, path, data=data, files=files)
+
+    if not picked:
+        fields.update(status="empty", error="Keine Meldungen gefunden. " + " | ".join(errors))
+        log.info("Daily News: keine Meldungen für %s", today)
+        return save()
+    try:
+        user = f"Smart home news from {span}:\n\n" + "\n".join(
+            f"{i}. [{it['source']}] {it['title']} – {it['summary'][:300]}" for i, it in enumerate(picked, 1))
+        d, usage = claude_json(NEWS_SYSTEM.format(level=NEWS_LEVEL), user)
+        if not isinstance(d.get("headlines"), list) or not d["headlines"]:
+            raise RuntimeError("Antwort ohne Meldungen")
+        for h in d["headlines"]:  # Originalartikel zum Nachlesen verlinken
+            try:
+                h["link"] = picked[int(h.get("n")) - 1]["link"]
+            except (TypeError, ValueError, IndexError):
+                pass
+        d["span"] = span
+        d["usage"] = {"model": NEWS_MODEL, "in": usage.get("input_tokens", 0), "out": usage.get("output_tokens", 0)}
+        log.info("Daily News: Claude fertig (%s Tokens rein, %s raus)", d["usage"]["in"], d["usage"]["out"])
+        with tempfile.TemporaryDirectory() as td:
+            mp3 = os.path.join(td, f"news-{today}.mp3")
+            BUSY["news"] = True
+            try:
+                fields["duration"] = news_audio(pb, news_script(d, today), mp3)
+            finally:
+                BUSY["news"] = False
+            fields.update(title=(d.get("title") or "Smart Home News")[:300], data=d, status="done", error="")
+            with open(mp3, "rb") as f:
+                r = save({"audio": (f"news-{today}.mp3", f, "audio/mpeg")})
+        log.info("Daily News für %s gespeichert: %s (%d s)", today, fields["title"], fields["duration"])
+        return r
+    except Exception as e:
+        log.exception("Daily News fehlgeschlagen")
+        fields.update(status="error", error=str(e)[:1900])
+        return save()
+
+
+def _hm(t):
+    try:
+        h, m = (int(x) for x in str(t).split(":"))
+        return h * 60 + m
+    except ValueError:
+        return None
+
+
+def news_pass(pb):
+    from datetime import datetime, timezone
+    now = datetime.now(_tz(None))
+    mins, today = now.hour * 60 + now.minute, now.strftime("%Y-%m-%d")
+    recs = pb.full_list("news", f"date='{today}'")
+    rec = recs[0] if recs else None
+    start = _hm(NEWS_TIME)
+    if start is not None and mins >= start:
+        retry = False
+        if rec and rec.get("status") == "error" and (rec.get("tries") or 0) < 3:
+            upd = datetime.fromisoformat(rec["updated"].replace(" ", "T").replace("Z", "+00:00"))
+            retry = (datetime.now(timezone.utc) - upd).total_seconds() > 3600
+        if rec is None or retry:
+            make_news(pb)
+            recs = pb.full_list("news", f"date='{today}'")
+            rec = recs[0] if recs else None
+    push = _hm(NEWS_PUSH)
+    if rec and rec.get("status") == "done" and not rec.get("pushed") and push is not None and mins >= push:
+        if mins - push <= 180:  # nicht mitten am Tag nachschicken
+            d = rec.get("data") or {}
+            n = len(d.get("headlines") or [])
+            msg = {"title": "📰 Smart Home News", "url": "/#news",
+                   "body": f"{rec.get('title')}\n{n} {'story' if n == 1 else 'stories'} · {max(1, round((rec.get('duration') or 0) / 60))} min"}
+            for sub in pb.full_list("push"):
+                try:
+                    if not send_push(sub.get("sub"), msg):
+                        pb.req("DELETE", f"/api/collections/push/records/{sub['id']}")
+                except Exception as e:
+                    log.warning("News-Mitteilung nicht zugestellt: %s", e)
+            log.info("News-Mitteilung verschickt: %s", rec.get("title"))
+        pb.req("PATCH", f"/api/collections/news/records/{rec['id']}", json={"pushed": True})
+
+
+def news_loop():
+    if not ANTHROPIC_KEY and not FAKE:
+        log.info("Daily News ist aus (kein ANTHROPIC_API_KEY in der .env)")
+        return
+    log.info("Daily News an: Folge ab %s, Mitteilung %s, Modell %s, %d Quellen", NEWS_TIME, NEWS_PUSH or "aus", NEWS_MODEL, len(NEWS_FEEDS))
+    pb = PB()
+    while True:
+        tick("news")
+        try:
+            news_pass(pb)
+        except Exception as e:
+            log.exception("Daily-News-Schleife: %s", e)
+        time.sleep(60)
+
+
 if __name__ == "__main__":
+    import sys
+    if sys.argv[1:2] == ["news"]:  # docker compose exec worker python worker.py news [--dry]
+        make_news(PB(), dry="--dry" in sys.argv)
+        sys.exit(0)
     log.info("Worker startet (Whisper: %s, Stimmen: %s)%s", WHISPER_MODEL, VOICES, " [FAKE]" if FAKE else "")
     for name in ("tts", "aufnahmen", "aussprache", "erinnerung"):
         tick(name)
+    threading.Thread(target=news_loop, daemon=True).start()
     threading.Thread(target=push_loop, daemon=True).start()
     threading.Thread(target=tts_loop, daemon=True).start()
     threading.Thread(target=attempt_loop, daemon=True).start()

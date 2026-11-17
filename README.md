@@ -110,7 +110,15 @@ Ein selbst gehosteter Vokabeltrainer fürs Handy, gemacht für Englischkurse: Vo
 - **📖 Weitere Bedeutungen:** Viele Vokabeln haben mehrere Bedeutungen (z. B. *account for* = ausmachen · auch: erklären, berücksichtigen). Sie stehen in der Stundenliste, erscheinen nach jeder Antwort als „auch: …“ und **zählen beim Eintippen als richtig**; bei der Auswahl taucht keine andere richtige Bedeutung als Falschantwort auf. Claude ergänzt sie per Knopf (*Mehr* oder pro Stunde, Pakete zu 200 Wörtern), von Hand geht es im Bearbeiten-Fenster.
 - **✍️ Sätze für alle Stunden holen** (unter *Mehr*): nach einem großen Import alle fehlenden Beispielsätze in Paketen zu 80 Wörtern – Text an Claude, Antwort einfügen, das nächste Paket öffnet sich von selbst. Gleiche Wörter in mehreren Stunden bekommen denselben Satz.
 
-Claude wird **nur geöffnet, wenn du einen Claude-Knopf antippst**; die App selbst schickt nichts an KI-Dienste. Ausnahme, nur wenn du sie einrichtest: Die Google-Stimmen bekommen die englischen Vokabeln und Beispielsätze zum Einsprechen.
+Claude wird **nur geöffnet, wenn du einen Claude-Knopf antippst**; die App selbst schickt nichts an KI-Dienste. Ausnahmen, nur wenn du sie einrichtest: Die Google-Stimmen bekommen die englischen Vokabeln und Beispielsätze zum Einsprechen, und für die [Daily News](#daily-news-einrichten-optional) gehen öffentliche Schlagzeilen an die Claude-API (keine Vokabeln, kein Lernstand).
+
+### 📰 Daily News (optional, in Arbeit)
+
+- Jeden Morgen holt der Server die **Smart-Home-Nachrichten vom Vortag** aus RSS-Feeds und lässt sie von Claude in **einfachem Englisch** (einstellbar, Standard A2) zusammenfassen: Titel, bis zu 5 Meldungen, 5 Wörter des Tages mit Übersetzung und Beispielsatz.
+- Daraus entsteht eine **MP3 zum Anhören** (gewählte KI-Stimme, Google oder Piper) – z. B. im Auto.
+- Um 7 Uhr kommt eine **Push-Mitteilung** (an alle Geräte mit eingeschalteter Erinnerung).
+- **Sparsam:** Die Feeds werden ohne KI gefiltert, Claude bekommt nur Titel und Anriss von höchstens 15 Meldungen – genau **ein Aufruf pro Tag** mit dem kleinen Modell Haiku (wenige Cent im Monat).
+- Bisher nur auf dem Server: Die Folgen stehen in der Admin-Oberfläche unter *Collections → news*. Die Ansicht in der App und ein Podcast-Feed folgen.
 
 ### Erinnerung & Widget
 
@@ -249,6 +257,16 @@ Enthält die Excel eurer Lehrkraft immer dieselben Tippfehler, kann der Import s
 
 Zum Verbrauch: Ein Kurs mit rund 2.000 Wörtern braucht beim ersten Einsprechen etwa 20.000–30.000 Zeichen, danach pro Stunde nur ein paar hundert. Google hat für jede Stimmenklasse ein monatliches Gratis-Kontingent (aktuelle Werte auf der [Preisseite](https://cloud.google.com/text-to-speech/pricing)). Jeder Stimmenwechsel spricht alle Wörter neu ein. Meldet Google einen Fehler (z. B. Schlüssel falsch, Kontingent erschöpft), zeigt die App ihn bei der Stimmenwahl an; vorhandene Aufnahmen bleiben erhalten, der Server versucht es stündlich neu. Die Nutzung unterliegt den Bedingungen von Google Cloud.
 
+## Daily News einrichten (optional)
+
+1. Auf [console.anthropic.com](https://console.anthropic.com) ein Konto anlegen, unter *Billing* etwas Guthaben aufladen (z. B. 5 €) und unter *API Keys* einen Schlüssel erstellen. Das ist **nicht** das Claude-Abo – die API wird getrennt abgerechnet. Empfehlung: unter *Limits* ein kleines Monatslimit setzen.
+2. In die `.env`: `ANTHROPIC_API_KEY=…` (weitere Einstellungen siehe `.env.example`), danach `docker compose up -d --build`.
+3. Quellen prüfen, ohne Claude aufzurufen: `docker compose exec worker python worker.py news --dry` – zeigt, welche Meldungen vom Vortag gefunden werden.
+4. Folge sofort erstellen (sonst automatisch ab `NEWS_TIME`, Standard 6:30): `docker compose exec worker python worker.py news`. Ein erneuter Aufruf erstellt die Folge des Tages neu.
+5. Im Worker-Log steht pro Folge, wie viele Tokens verbraucht wurden; sie stehen auch im Eintrag unter `data.usage`.
+
+Eigene Quellen: `NEWS_FEEDS` mit RSS- oder Atom-Adressen, durch Leerzeichen getrennt. Deutsche Quellen gehen auch – Claude schreibt trotzdem auf Englisch. Gibt es am Vortag weniger als 3 Meldungen (z. B. nach einem Sonntag), nimmt der Server die letzten drei Tage. Schlägt die Erstellung fehl, versucht er es bis zu dreimal im Abstand von einer Stunde.
+
 ## Feinabstimmung (`.env`)
 
 - `WHISPER_MODEL`: `base` ist schneller, `medium` genauer (braucht ca. 5 GB RAM). Standard ist `small`.
@@ -260,7 +278,7 @@ Zum Verbrauch: Ein Kurs mit rund 2.000 Wörtern braucht beim ersten Einsprechen 
 ## Datenschutz und Recht – wenn andere deine Instanz nutzen
 
 - **Datenschutzseite:** `/legal/datenschutz.html`, verlinkt beim Login und unter *Mehr*. In der `.env` `APP_OPERATOR_NAME`, `APP_OPERATOR_CONTACT` und gegebenenfalls `APP_PROXY_PROVIDER` (z. B. `Cloudflare`) eintragen und neu starten. Prüfe, ob der Text zu deinem Betrieb passt. Er ist eine Vorlage und keine Rechtsberatung.
-- **Keine Verbindungen zu Dritten:** Schriften und Skripte liegen lokal, ohne Tracking und ohne Analyse. Claude wird nur geöffnet, wenn man einen Claude-Knopf antippt.
+- **Keine Verbindungen zu Dritten:** Schriften und Skripte liegen lokal, ohne Tracking und ohne Analyse. Claude wird nur geöffnet, wenn man einen Claude-Knopf antippt. Nur wenn eingerichtet: Google-Stimmen (Vokabeln) und Daily News (der Server ruft die RSS-Feeds ab und schickt öffentliche Schlagzeilen an die Claude-API).
 - **Datensparsam:** Sprachaufnahmen beim Üben werden nach ca. einer Stunde gelöscht, Server-Protokolle nach 7 Tagen. Selbstregistrierung ist abgeschaltet, Konten legt der Betreiber an.
 - **Gemeinsamer Datenbestand:** Alle Konten einer Instanz sehen dieselben Stunden und denselben Lernstand. Für getrennte Lernstände betreibt jede Person ihre eigene Instanz.
 - **Kursinhalte gehören nicht ins Repo:** Vokabellisten und Aufnahmen der Lehrkraft sind deren Werk. Teilt sie nur mit ihrer Zustimmung. Ins Repo und in Forks gehören sie nie, `data/` ist per `.gitignore` ausgeschlossen.

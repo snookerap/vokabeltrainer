@@ -44,5 +44,13 @@ services:
       PIPER_LENGTH_SCALE: ${PIPER_LENGTH_SCALE:-1.05}
       APP_TZ: ${APP_TZ:-Europe/Berlin}
       APP_OPERATOR_CONTACT: ${APP_OPERATOR_CONTACT:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}       # optional: Daily News (siehe README)
+      NEWS_MODEL: ${NEWS_MODEL:-}
+      NEWS_LEVEL: ${NEWS_LEVEL:-}
+      NEWS_TIME: ${NEWS_TIME:-}
+      NEWS_PUSH: ${NEWS_PUSH-07:00}
+      NEWS_FEEDS: ${NEWS_FEEDS:-}
+      NEWS_MAX_ITEMS: ${NEWS_MAX_ITEMS:-}
+      NEWS_LENGTH_SCALE: ${NEWS_LENGTH_SCALE:-}
     volumes:
       - ./data/models:/models        # Whisper- und Piper-Modelle (Download beim ersten Start)
