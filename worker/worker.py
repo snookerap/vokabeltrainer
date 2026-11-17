@@ -946,26 +946,36 @@ NEWS_TIME = os.environ.get("NEWS_TIME", "") or "06:30"   # ab dann wird die Folg
 NEWS_PUSH = os.environ.get("NEWS_PUSH", "07:00")         # Uhrzeit der Push-Mitteilung, leer = keine
 NEWS_MAX_ITEMS = int(os.environ.get("NEWS_MAX_ITEMS", "") or 15)
 NEWS_SPEED = float(os.environ.get("NEWS_LENGTH_SCALE", "") or 1.15)  # Piper: größer = langsamer
-NEWS_FEEDS = [u.strip() for u in (os.environ.get("NEWS_FEEDS", "") or " ".join([
+def _feeds(env, default):
+    return [u.strip() for u in (os.environ.get(env, "") or " ".join(default)).replace(",", " ").split() if u.strip()]
+
+
+# Teil 1: Smart Home. Teil 2 (optional, NEWS_FEEDS_WORLD leer setzen = aus): Nachrichten aus Deutschland und der Welt.
+NEWS_FEEDS = _feeds("NEWS_FEEDS", [
     "https://www.home-assistant.io/atom.xml",
     "https://www.theverge.com/rss/smart-home/index.xml",
     "https://www.smarthomeassistent.de/feed/",
-])).replace(",", " ").split() if u.strip()]
+    "https://www.simon42.com/feed/",
+])
+NEWS_FEEDS_WORLD = _feeds("NEWS_FEEDS_WORLD", ["https://www.n-tv.de/politik/rss"]) if os.environ.get("NEWS_FEEDS_WORLD") != "-" else []
+NEWS_MAX_WORLD = int(os.environ.get("NEWS_MAX_WORLD", "") or 8)
 
-NEWS_SYSTEM = """You write a short daily audio news show about smart home technology for a German adult who is learning English (CEFR level {level}).
+NEWS_SYSTEM = """You write a short daily audio news show for a German adult who is learning English (CEFR level {level}).
+The show has two parts: A) smart home news, B) news from Germany and the world (only if part B items are given).
 
 Rules:
 - Use simple English for level {level}: short sentences (at most 12 words), common words, mostly present simple and past simple.
-- If you need a technical word, explain it in simple words the first time.
-- Only smart home topics: home automation, smart devices and sensors, lights, heating, energy and solar at home, security cameras, voice assistants, Matter, Home Assistant. Skip kitchen appliances, phones, watches, TVs and product tests that are not about the smart home.
-- Choose the most important and interesting news, at most 5. Skip ads, deals and tiny updates. Merge news about the same topic.
+- If you need a technical or political word, explain it in simple words the first time.
+- Part A: up to 4 stories. Only smart home topics: home automation, smart devices and sensors, lights, heating, energy and solar at home, security cameras, voice assistants, Matter, Home Assistant. Skip kitchen appliances, phones, watches, TVs and product tests that are not about the smart home.
+- Part B: the 2 most important stories. Be neutral and factual: report what happened and who said what, no opinions.
+- Skip ads, deals and tiny updates. Merge news about the same topic.
 - Use only facts from the given news. Never invent anything.
 - Write for listening: no lists, no symbols, no links. Write numbers so they are easy to say.
 
 Return only JSON, nothing else:
 {{"title": "short title for today's show, at most 8 words",
  "intro": "1 or 2 friendly sentences",
- "headlines": [{{"n": number of the news item you used, "title": "simple headline", "text": "2 to 4 simple sentences", "source": "source name"}}],
+ "headlines": [{{"n": number of the news item you used, "part": "A" or "B", "title": "simple headline", "text": "2 to 4 simple sentences", "source": "source name"}}],
  "outro": "1 short sentence",
  "vocab": [{{"en": "useful word or phrase from your text", "de": "German translation", "ex": "a sentence from your text with the word in [square brackets]"}}]}}
 Give exactly 5 vocab items: words a {level} learner probably does not know yet."""
@@ -1032,13 +1042,16 @@ def parse_feed(xml_bytes, source):
 
 
 def fetch_feeds():
+    """Alle Feeds laden; jede Meldung bekommt part 'A' (Smart Home) oder 'B' (Deutschland & Welt)."""
     items, errors = [], []
-    for url in NEWS_FEEDS:
+    for part, url in [("A", u) for u in NEWS_FEEDS] + [("B", u) for u in NEWS_FEEDS_WORLD]:
         try:
             r = requests.get(url, timeout=30, headers={"User-Agent": "Vokabeltrainer-DailyNews/1.0"})
             r.raise_for_status()
             src = (urllib.parse.urlparse(url).hostname or url).removeprefix("www.")
             got = parse_feed(r.content, src)
+            for it in got:
+                it["part"] = part
             log.info("News-Quelle %s: %d Meldungen", src, len(got))
             items += got
         except Exception as e:
@@ -1102,7 +1115,10 @@ def news_script(d, day):
     from datetime import date
     dt = date.fromisoformat(day)
     parts = [f"Smart Home News for {dt.strftime('%A')}, {dt.strftime('%B')} {dt.day}.", d.get("intro")]
-    for i, h in enumerate(d.get("headlines") or [], 1):
+    heads = sorted(d.get("headlines") or [], key=lambda h: h.get("part") == "B")  # erst Smart Home, dann Welt
+    for i, h in enumerate(heads, 1):
+        if h.get("part") == "B" and (i == 1 or heads[i - 2].get("part") != "B"):
+            parts.append("And now, news from Germany and the world.")
         parts.append(f"Story {i}. {_sentence(h.get('title'))} {h.get('text', '')}")
     words = [v for v in d.get("vocab") or [] if v.get("en")]
     if words:
@@ -1160,16 +1176,20 @@ def make_news(pb, dry=False):
             start = max(now - timedelta(days=3), datetime.fromisoformat(last.replace(" ", "T").replace("Z", "+00:00")))
     except Exception as e:
         log.warning("Letzte Folge nicht lesbar (%s) – nehme die letzten 24 Stunden", e)
-    picked, span = pick_items(items, start, now, NEWS_MAX_ITEMS), "the last day"
+    smart = [i for i in items if i.get("part") != "B"]
+    world = pick_items([i for i in items if i.get("part") == "B"], start, now, NEWS_MAX_WORLD)
+    picked, span = pick_items(smart, start, now, NEWS_MAX_ITEMS), "the last day"
     if len(picked) < 3:  # z. B. nach einem ruhigen Wochenende
         start = now - timedelta(days=3)
-        picked, span = pick_items(items, start, now, NEWS_MAX_ITEMS), "the last three days"
+        picked, span = pick_items(smart, start, now, NEWS_MAX_ITEMS), "the last three days"
+    n_smart = len(picked)
+    picked = picked + world  # durchgehend nummeriert: erst Smart Home, dann Welt
     if dry:
-        print(f"{len(items)} Meldungen geladen, {len(picked)} ausgewählt (ab {start.astimezone(now.tzinfo):%d.%m. %H:%M}).")
+        print(f"{len(items)} Meldungen geladen, {n_smart} Smart Home (ab {start.astimezone(now.tzinfo):%d.%m. %H:%M}) + {len(world)} Deutschland & Welt.")
         for e in errors:
             print("FEHLER", e)
         for i, it in enumerate(picked, 1):
-            print(f"{i:2}. [{it['source']}] {it['date'].astimezone(now.tzinfo):%d.%m. %H:%M}  {it['title']}")
+            print(f"{i:2}. {it.get('part', 'A')} [{it['source']}] {it['date'].astimezone(now.tzinfo):%d.%m. %H:%M}  {it['title']}")
         return None
     recs = pb.full_list("news", f"date='{today}'")
     rec = recs[0] if recs else None
@@ -1188,8 +1208,11 @@ def make_news(pb, dry=False):
         log.info("Daily News: keine Meldungen für %s", today)
         return save()
     try:
-        user = f"Smart home news from {span}:\n\n" + "\n".join(
-            f"{i}. [{it['source']}] {it['title']} – {it['summary'][:300]}" for i, it in enumerate(picked, 1))
+        line = lambda i, it: f"{i}. [{it['source']}] {it['title']} – {it['summary'][:300]}"
+        user = f"A) Smart home news from {span}:\n\n" + "\n".join(line(i, it) for i, it in enumerate(picked[:n_smart], 1))
+        if picked[n_smart:]:
+            user += "\n\nB) News from Germany and the world (German sources):\n\n" + "\n".join(
+                line(i, it) for i, it in enumerate(picked[n_smart:], n_smart + 1))
         d, usage = claude_json(NEWS_SYSTEM.format(level=NEWS_LEVEL), user)
         if not isinstance(d.get("headlines"), list) or not d["headlines"]:
             raise RuntimeError("Antwort ohne Meldungen")
@@ -1198,6 +1221,7 @@ def make_news(pb, dry=False):
                 h["link"] = picked[int(h.get("n")) - 1]["link"]
             except (TypeError, ValueError, IndexError):
                 pass
+        d["headlines"] = sorted(d["headlines"], key=lambda h: h.get("part") == "B")
         d["span"] = span
         d["usage"] = {"model": NEWS_MODEL, "in": usage.get("input_tokens", 0), "out": usage.get("output_tokens", 0)}
         log.info("Daily News: Claude fertig (%s Tokens rein, %s raus)", d["usage"]["in"], d["usage"]["out"])
@@ -1264,7 +1288,7 @@ def news_loop():
     if not ANTHROPIC_KEY and not FAKE:
         log.info("Daily News ist aus (kein ANTHROPIC_API_KEY in der .env)")
         return
-    log.info("Daily News an: Folge ab %s, Mitteilung %s, Modell %s, %d Quellen", NEWS_TIME, NEWS_PUSH or "aus", NEWS_MODEL, len(NEWS_FEEDS))
+    log.info("Daily News an: Folge ab %s, Mitteilung %s, Modell %s, %d Smart-Home-Quellen, %d Welt-Quellen", NEWS_TIME, NEWS_PUSH or "aus", NEWS_MODEL, len(NEWS_FEEDS), len(NEWS_FEEDS_WORLD))
     pb = PB()
     while True:
         tick("news")

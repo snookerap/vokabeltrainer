@@ -51,6 +51,8 @@ services:
       NEWS_PUSH: ${NEWS_PUSH-07:00}
       NEWS_FEEDS: ${NEWS_FEEDS:-}
       NEWS_MAX_ITEMS: ${NEWS_MAX_ITEMS:-}
+      NEWS_FEEDS_WORLD: ${NEWS_FEEDS_WORLD:-}
+      NEWS_MAX_WORLD: ${NEWS_MAX_WORLD:-}
       NEWS_LENGTH_SCALE: ${NEWS_LENGTH_SCALE:-}
     volumes:
       - ./data/models:/models        # Whisper- und Piper-Modelle (Download beim ersten Start)
