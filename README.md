@@ -112,13 +112,15 @@ Ein selbst gehosteter Vokabeltrainer fürs Handy, gemacht für Englischkurse: Vo
 
 Claude wird **nur geöffnet, wenn du einen Claude-Knopf antippst**; die App selbst schickt nichts an KI-Dienste. Ausnahmen, nur wenn du sie einrichtest: Die Google-Stimmen bekommen die englischen Vokabeln und Beispielsätze zum Einsprechen, und für die [Daily News](#daily-news-einrichten-optional) gehen öffentliche Schlagzeilen an die Claude-API (keine Vokabeln, kein Lernstand).
 
-### 📰 Daily News (optional, in Arbeit)
+### 📰 Daily News (optional)
 
 - Jeden Morgen holt der Server die **Smart-Home-Nachrichten seit der letzten Folge** (sonst der letzten 24 Stunden) aus RSS-Feeds und lässt sie von Claude in **einfachem Englisch** (einstellbar, Standard A2) zusammenfassen. Zwei Teile: **bis zu 4 Smart-Home-Meldungen** (Home Assistant, The Verge, simon42, haus-automatisierung.com – nur echte Smart-Home-Themen) und **2 Nachrichten aus Deutschland und der Welt** (n-tv Politik, neutral). Dazu 5 Wörter des Tages mit Übersetzung und Beispielsatz.
 - Daraus entsteht eine **MP3 zum Anhören** (gewählte KI-Stimme, Google oder Piper) – z. B. im Auto.
-- Um 7 Uhr kommt eine **Push-Mitteilung** (an alle Geräte mit eingeschalteter Erinnerung).
+- Um 7 Uhr kommt eine **Push-Mitteilung** (an alle Geräte mit eingeschalteter Erinnerung) – Antippen öffnet direkt die Daily News.
+- **In der App** (Karte auf der Startseite): Text zum Mitlesen, Audio-Player mit ±15/30 s und Tempo 0,75–1,3× (läuft auch bei gesperrtem Bildschirm, merkt sich die Stelle), Links zu den Originalartikeln, ältere Folgen. Ab 80 % gilt eine Folge als gehört.
+- **Wörter des Tages übernehmen:** ein Knopf legt sie in die Stunde **„Daily News“** (ohne Datum) – Wörter, die schon in einer Stunde stehen, werden übersprungen.
+- **🚗 Podcast-Feed:** privater RSS-Link mit geheimem Schlüssel für Apple Podcasts, Overcast & Co. (z. B. im Auto über CarPlay). Einrichtung in der App unter *Daily News → Als Podcast hören*.
 - **Sparsam:** Die Feeds werden ohne KI gefiltert, Claude bekommt nur Titel und Anriss von höchstens 15 + 8 Meldungen – genau **ein Aufruf pro Tag** mit dem kleinen Modell Haiku (wenige Cent im Monat).
-- Bisher nur auf dem Server: Die Folgen stehen in der Admin-Oberfläche unter *Collections → news*. Die Ansicht in der App und ein Podcast-Feed folgen.
 
 ### Erinnerung & Widget
 
@@ -263,7 +265,8 @@ Zum Verbrauch: Ein Kurs mit rund 2.000 Wörtern braucht beim ersten Einsprechen 
 2. In die `.env`: `ANTHROPIC_API_KEY=…` (weitere Einstellungen siehe `.env.example`), danach `docker compose up -d --build`.
 3. Quellen prüfen, ohne Claude aufzurufen: `docker compose exec worker python worker.py news --dry` – zeigt, welche Meldungen seit der letzten Folge gefunden werden.
 4. Folge sofort erstellen (sonst automatisch ab `NEWS_TIME`, Standard 6:30): `docker compose exec worker python worker.py news`. Ein erneuter Aufruf erstellt die Folge des Tages neu.
-5. Im Worker-Log steht pro Folge, wie viele Tokens verbraucht wurden; sie stehen auch im Eintrag unter `data.usage`.
+5. Podcast (optional): in der App *Daily News → Als Podcast hören → Podcast-Link erzeugen*, Link kopieren und in der Podcast-App „per URL folgen“. Den Link über die **öffentliche Adresse** kopieren (https://…), sonst klappt es nur im Heimnetz. Der Feed liegt unter `/api/news/podcast.xml?key=…`, die MP3s unter `/api/news/audio/<id>.mp3?key=…` (ohne Anmeldung, nur mit Schlüssel; „Neuer Schlüssel“ sperrt den alten Link).
+6. Im Worker-Log steht pro Folge, wie viele Tokens verbraucht wurden; sie stehen auch im Eintrag unter `data.usage`.
 
 Eigene Quellen: `NEWS_FEEDS` (Smart Home) und `NEWS_FEEDS_WORLD` (Deutschland & Welt, `-` = Teil aus) mit RSS- oder Atom-Adressen, durch Leerzeichen getrennt – oder einfach der Adresse der Webseite, dann sucht der Server den Feed selbst. Deutsche Quellen gehen auch – Claude schreibt trotzdem auf Englisch. Gibt es seit der letzten Folge weniger als 3 Meldungen (z. B. nach einem ruhigen Wochenende), nimmt der Server die letzten drei Tage. Feeds mit vielen Meldungen pro Tag (nur die neuesten ~20 stehen drin) werden so trotzdem lückenlos erfasst, weil die Folge jeden Morgen entsteht. Schlägt die Erstellung fehl, versucht er es bis zu dreimal im Abstand von einer Stunde.
 
@@ -278,7 +281,7 @@ Eigene Quellen: `NEWS_FEEDS` (Smart Home) und `NEWS_FEEDS_WORLD` (Deutschland & 
 ## Datenschutz und Recht – wenn andere deine Instanz nutzen
 
 - **Datenschutzseite:** `/legal/datenschutz.html`, verlinkt beim Login und unter *Mehr*. In der `.env` `APP_OPERATOR_NAME`, `APP_OPERATOR_CONTACT` und gegebenenfalls `APP_PROXY_PROVIDER` (z. B. `Cloudflare`) eintragen und neu starten. Prüfe, ob der Text zu deinem Betrieb passt. Er ist eine Vorlage und keine Rechtsberatung.
-- **Keine Verbindungen zu Dritten:** Schriften und Skripte liegen lokal, ohne Tracking und ohne Analyse. Claude wird nur geöffnet, wenn man einen Claude-Knopf antippt. Nur wenn eingerichtet: Google-Stimmen (Vokabeln) und Daily News (der Server ruft die RSS-Feeds ab und schickt öffentliche Schlagzeilen an die Claude-API).
+- **Keine Verbindungen zu Dritten:** Schriften und Skripte liegen lokal, ohne Tracking und ohne Analyse. Claude wird nur geöffnet, wenn man einen Claude-Knopf antippt. Nur wenn eingerichtet: Google-Stimmen (Vokabeln) und Daily News (der Server ruft die RSS-Feeds ab und schickt öffentliche Schlagzeilen an die Claude-API). Der Podcast-Link gibt die Folgen ohne Anmeldung heraus – wie den Widget-Schlüssel nicht weitergeben.
 - **Datensparsam:** Sprachaufnahmen beim Üben werden nach ca. einer Stunde gelöscht, Server-Protokolle nach 7 Tagen. Selbstregistrierung ist abgeschaltet, Konten legt der Betreiber an.
 - **Gemeinsamer Datenbestand:** Alle Konten einer Instanz sehen dieselben Stunden und denselben Lernstand. Für getrennte Lernstände betreibt jede Person ihre eigene Instanz.
 - **Kursinhalte gehören nicht ins Repo:** Vokabellisten und Aufnahmen der Lehrkraft sind deren Werk. Teilt sie nur mit ihrer Zustimmung. Ins Repo und in Forks gehören sie nie, `data/` ist per `.gitignore` ausgeschlossen.

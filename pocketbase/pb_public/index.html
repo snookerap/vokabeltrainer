@@ -146,7 +146,7 @@ details summary{cursor:pointer;font-weight:700;padding:6px 0}
 <script src="pocketbase.umd.js"></script>
 <script>
 'use strict';
-const APP_VERSION='1.23.4 (17.11.2026)';
+const APP_VERSION='1.24.0 (17.11.2026)';
 /* ---------- helpers ---------- */
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
@@ -179,7 +179,7 @@ const Store={
       S.error='offline';render();return}
     S.needLogin=false;
     try{await this.loadAll()}catch(e){console.error(e);S.error='offline';render();return}
-    S.ready=true;render();this.subscribe();
+    S.ready=true;render();this.subscribe();loadNews();
   },
   async login(email,pw){await pb.collection('users').authWithPassword(email,pw);S.error=null;this.fresh=true;await this.init();this.fresh=false},
   logout(){pb.realtime.unsubscribe();pb.authStore.clear();location.reload()},
@@ -513,7 +513,7 @@ function render(){
   else if(S.probe)html=viewProbe();
   else if(S.player)html=viewPlayer();
   else if(S.ses)html=viewSession();
-  else if(S.tab==='home')html=viewHome();
+  else if(S.tab==='home')html=S.view&&S.view.news!==undefined?viewNews():viewHome();
   else if(S.tab==='practice')html=viewSetup();
   else if(S.tab==='lessons')html=S.view&&S.view.lesson&&S.lessons[S.view.lesson]?viewLesson(S.view.lesson):viewLessons();
   else if(S.tab==='add')html=viewAdd();
@@ -556,6 +556,7 @@ function viewHome(){
   ${last?`<div class="card"><div class="row"><div class="grow"><div class="sub">Letzte Stunde</div><h3>${esc(last.name)}</h3><div class="small muted">${lc.tot} Wörter · ${lc.s} sicher · ${lc.nw} neu${recsFor(last.id).length?' · 🎧':''}</div>${bar(lc)}</div></div>
     <div class="row" style="margin-top:12px"><button class="btn pri grow" data-act="quick" data-v="last">Üben</button>${recsFor(last.id).length?`<button class="btn grow" data-act="hear" data-v="${last.id}">🎧 Anhören</button>`:''}<button class="btn grow" data-act="open" data-v="${last.id}">Ansehen</button></div></div>`:''}
   <div class="row" style="gap:10px;margin-bottom:12px"><button class="btn grow" data-act="quick" data-v="prep">🎒 Vor dem Kurs</button><button class="btn grow" data-act="claude">💬 Mit Claude</button></div>
+  ${newsCard()}
   ${viewChart()}
   <div class="card"><div class="row"><div class="grow"><h3>Gesamtstand</h3><div class="small muted">${c.s} sicher · ${c.l} am Lernen · ${c.nw} neu</div>${bar(c)}</div></div>
     ${allItems(all).some(i=>isHard(i.p))?`<button class="btn full" style="margin-top:12px" data-act="quick" data-v="hard">Schwierige Wörter üben</button>`:''}</div>`;
@@ -1893,9 +1894,120 @@ function newLesson(date,name){
   const maxO=Math.max(0,...Object.values(S.lessons).map(l=>l.order||0));
   const l={id,name:name||fmtDate(date),date,dated:true,order:maxO+1,words:[]};Store.saveLesson(l);return l;
 }
+/* ---------- Daily News ---------- */
+const NEWS_LID='Lnews',NEWS_RATES=[0.75,0.9,1,1.15,1.3];
+const N={list:[],loaded:false,cur:null,loading:false,blobs:{},saved:0};
+const NA=new Audio();NA.preload='auto';
+async function loadNews(){
+  try{N.list=(await pb.collection('news').getList(1,60,{sort:'-date',filter:'status="done"'})).items}catch(e){N.list=[]}
+  N.loaded=true;softRender();
+  pb.collection('news').subscribe('*',e=>{const r=e.record;N.list=N.list.filter(x=>x.id!==r.id);
+    if(e.action!=='delete'&&r.status==='done')N.list.push(r);N.list.sort((a,b)=>b.date.localeCompare(a.date));softRender()}).catch(()=>{});
+}
+function openNews(id){S.tab='home';S.view={news:id||''};render();window.scrollTo(0,0)}
+function navTo(u){if(String(u||'').includes('#news'))openNews()}
+const newsCur=()=>(S.view&&S.view.news&&N.list.find(x=>x.id===S.view.news))||N.list[0]||null;
+const fmtDur=s=>{s=Math.max(0,Math.round(s||0));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
+const newsRate=()=>+set().newsRate||1;
+const nNorm=s=>String(s||'').toLowerCase().replace(/\(.*?\)/g,'').replace(/\s+/g,' ').trim();
+function newsMissing(r){const v=((r.data||{}).vocab||[]).filter(x=>x&&x.en&&x.de);
+  const have=new Set(allItems(Object.keys(S.lessons)).map(i=>nNorm(i.w.en)));return {v,miss:v.filter(x=>!have.has(nNorm(x.en)))}}
+const newsPos=()=>{try{return JSON.parse(localStorage.getItem('newsPos')||'{}')}catch(e){return {}}};
+function newsCard(){
+  const r=N.list[0];if(!r)return '';const on=N.cur===r.id&&!NA.paused;
+  return `<div class="card"><div class="row"><div class="grow"><div class="sub">📰 Daily News · ${r.date===todayISO()?'heute':fmtDate(r.date)}${r.duration?' · '+fmtDur(r.duration):''}${r.listened?' · ✓ gehört':''}</div><h3>${esc(r.title||'Smart Home News')}</h3></div></div>
+    <button class="btn ${r.listened?'':'pri '}full" style="margin-top:12px" data-act="news">${on?'⏸ Läuft – öffnen':'▶ Anhören & mitlesen'}</button></div>`;
+}
+function viewNews(){
+  const back=`<button class="btn icon ghost" data-act="back" aria-label="Zurück">‹</button>`;
+  if(!N.loaded)return `<div class="top">${back}<div class="grow"><h2>Daily News</h2></div></div><div class="center pad muted">Lade …</div>`;
+  const r=newsCur();
+  if(!r)return `<div class="top">${back}<div class="grow"><h2>Daily News</h2></div></div><div class="card center pad"><p class="muted">Noch keine Folge. Der Server erstellt sie jeden Morgen, wenn die Daily News eingerichtet sind (siehe README).</p></div>${viewPodcast()}`;
+  const d=r.data||{};const heads=d.headlines||[];const mine=N.cur===r.id;const {v,miss}=newsMissing(r);
+  const hx=s=>esc(s).replace(/\[(.+?)\]/g,'<b>$1</b>');
+  const part=p=>{const hs=heads.filter(h=>(h.part==='B')===(p==='B'));if(!hs.length)return '';
+    return `<div class="sub" style="margin:14px 0 4px">${p==='B'?'🌍 Deutschland & Welt':'🏠 Smart Home'}</div>`+hs.map(h=>`<h3 style="margin:10px 0 4px">${esc(h.title)}</h3><p style="margin:0 0 4px">${esc(h.text)}</p>${h.link?`<a class="small" href="${esc(h.link)}" target="_blank" rel="noopener">${esc(h.source||'Original')} ↗</a>`:`<span class="small muted">${esc(h.source||'')}</span>`}`).join('')};
+  const old=N.list.filter(x=>x.id!==r.id);
+  return `<div class="top">${back}<div class="grow"><h2>Daily News</h2><div class="sub">${fmtDate(r.date)}${r.duration?' · '+fmtDur(r.duration):''}</div></div></div>
+  <div class="card"><h3>${esc(r.title||'Smart Home News')}</h3>
+    ${r.audio?`<div class="row" style="gap:12px;align-items:center;margin-top:10px"><button class="btn pri" id="npbtn" data-act="newsplay" style="min-width:64px;font-size:22px">${mine&&N.loading?'…':mine&&!NA.paused?'⏸':'▶'}</button>
+      <div class="grow"><input type="range" id="npseek" min="0" max="1000" value="0" style="width:100%"${mine?'':' disabled'}><div class="small muted" id="nptime">${mine?'':'0:00 / '+fmtDur(r.duration)}</div></div></div>
+      <div class="row" style="gap:8px;margin-top:8px"><button class="btn grow" data-act="newsskip" data-v="-15">↺ 15 s</button><button class="btn grow" data-act="newsskip" data-v="30">30 s ↻</button></div>
+      <label class="f">Tempo</label><div class="seg">${NEWS_RATES.map(x=>`<button data-act="newsrate" data-v="${x}" class="${newsRate()===x?'on':''}">${String(x).replace('.',',')}×</button>`).join('')}</div>`:'<p class="muted small">Zu dieser Folge gibt es kein Audio.</p>'}
+  </div>
+  <div class="card">${d.intro?`<p style="margin:0">${esc(d.intro)}</p>`:''}${part('A')}${part('B')}${d.outro?`<p style="margin:14px 0 0">${esc(d.outro)}</p>`:''}</div>
+  ${v.length?`<div class="card"><h3>Wörter des Tages</h3><div class="list">${v.map(x=>`<div class="li"><div class="grow"><div class="en">${esc(x.en)}</div><div class="de">${esc(x.de)}</div>${x.ex?`<div class="small muted">${hx(x.ex)}</div>`:''}</div></div>`).join('')}</div>
+    <button class="btn ${miss.length?'pri ':''}full" style="margin-top:12px" data-act="newsimport" ${miss.length?'':'disabled'}>${miss.length?`➕ ${miss.length===v.length?'Alle':miss.length} in den Vokabeltrainer`:'✓ Schon im Vokabeltrainer'}</button>
+    <p class="small muted" style="margin:6px 0 0">Landen in der Stunde „Daily News“ und kommen dann wie neue Wörter ins Üben. Wörter, die du schon hast, werden übersprungen.</p></div>`:''}
+  ${old.length?`<div class="card"><h3>Ältere Folgen</h3><div class="list">${old.map(x=>`<button class="li" style="width:100%;text-align:left;background:none;border:0" data-act="newsopen" data-v="${x.id}"><div class="grow"><div class="en">${esc(x.title||'Smart Home News')}</div><div class="de">${fmtDate(x.date)}${x.duration?' · '+fmtDur(x.duration):''}${x.listened?' · ✓ gehört':''}</div></div></button>`).join('')}</div></div>`:''}
+  ${viewPodcast()}`;
+}
+function podcastUrl(){const k=S.meta.podcast&&S.meta.podcast.key;return k?location.origin+'/api/news/podcast.xml?key='+encodeURIComponent(k):''}
+function viewPodcast(){
+  const u=podcastUrl();
+  return `<div class="card"><h3>🚗 Als Podcast hören</h3>
+    <p class="small muted">Privater Feed für deine Podcast-App (z. B. im Auto über CarPlay). Neue Folgen erscheinen jeden Morgen von selbst.</p>
+    ${u?`${localAddr()?`<p class="small" style="background:var(--bad-soft);color:var(--ink);padding:10px 12px;border-radius:12px;margin:0 0 10px">⚠️ Du hast die App über <b>${esc(location.host)}</b> geöffnet. Dieser Link funktioniert nur im Heimnetz. Öffne die App zum Kopieren über deine öffentliche Adresse (https://…).</p>`:''}
+      <input class="t" readonly value="${esc(u)}" style="width:100%;font-size:13px" onclick="this.select()">
+      <div class="row" style="gap:10px;margin-top:10px"><button class="btn pri grow" data-act="podcopy">📋 Link kopieren</button><button class="btn grow" data-act="podkey">Neuer Schlüssel</button></div>
+      <ol class="small" style="padding-left:20px;margin:10px 0 0"><li><b>Apple Podcasts:</b> Mediathek → oben rechts <b>⋯</b> → <b>Sendung per URL folgen …</b> → Link einfügen.</li><li><b>Overcast, Pocket Casts &amp; Co.:</b> Podcast hinzufügen → <b>URL</b> → Link einfügen.</li></ol>
+      <p class="small muted" style="margin:8px 0 0">Wer den Link kennt, kann die Folgen hören – nicht weitergeben. „Neuer Schlüssel“ sperrt den alten Link.</p>`
+    :`<button class="btn full" data-act="podkey">Podcast-Link erzeugen</button>`}</div>`;
+}
+async function podKey(){
+  if(podcastUrl()&&!(await confirmBox('Neuen Schlüssel erzeugen? Der bisherige Podcast-Link funktioniert dann nicht mehr.','Neu erzeugen')))return;
+  await Store.saveMeta('podcast',{key:newWidgetKey(),at:Date.now()});render();toast('Podcast-Link erzeugt');
+}
+async function podCopy(){try{await navigator.clipboard.writeText(podcastUrl());toast('Link kopiert')}catch(e){toast('Kopieren nicht möglich – Link antippen und kopieren','err')}}
+function newsImport(){
+  const r=newsCur();if(!r)return;const {miss}=newsMissing(r);if(!miss.length)return toast('Alle Wörter sind schon drin');
+  const cur=S.lessons[NEWS_LID];const maxO=Math.max(0,...Object.values(S.lessons).map(l=>l.order||0));
+  const l=cur?Object.assign({},cur,{words:[...(cur.words||[])]}):{id:NEWS_LID,name:'Daily News',date:'',dated:false,order:maxO+1,words:[]};
+  for(const x of miss){const w={id:uid('w'),de:x.de,en:x.en};if(x.ex&&/\[.+\]/.test(x.ex))w.ex=x.ex;l.words.push(w)}
+  Store.saveLesson(l);render();toast(miss.length+' Wörter in „Daily News“ übernommen');
+}
+async function newsPlay(){
+  const r=newsCur();if(!r||!r.audio)return;
+  if(N.cur===r.id&&!N.loading&&NA.src){if(NA.paused){NA.playbackRate=newsRate();NA.play().catch(()=>{})}else NA.pause();return}
+  try{PA.pause()}catch(e){}stopAudio();setSession('playback');
+  try{NA.src=SILENT;const p=NA.play();if(p)p.then(()=>NA.pause()).catch(()=>{})}catch(e){} // iOS: im Tippen freischalten
+  N.cur=r.id;N.loading=true;newsTick();
+  try{
+    if(!N.blobs[r.id]){const res=await fetch(await Store.fileUrl(r,'audio'));if(!res.ok)throw new Error('HTTP '+res.status);N.blobs[r.id]=URL.createObjectURL(await res.blob())}
+    if(N.cur!==r.id)return;
+    NA.src=N.blobs[r.id];NA.playbackRate=newsRate();NA.defaultPlaybackRate=newsRate();
+    const pos=newsPos()[r.id];if(pos)NA.addEventListener('loadedmetadata',()=>{if(pos<(NA.duration||0)-10)NA.currentTime=pos},{once:true});
+    N.loading=false;newsMedia(r);await NA.play().catch(()=>{});
+  }catch(e){N.loading=false;N.cur=null;toast('Folge konnte nicht geladen werden: '+(e.message||e),'err')}
+  newsTick();
+}
+function newsMedia(r){
+  if(!('mediaSession' in navigator))return;
+  try{navigator.mediaSession.metadata=new MediaMetadata({title:r.title||'Smart Home News',artist:'Daily News · '+fmtDate(r.date),album:'Vokabeltrainer',artwork:[{src:'/icons/icon-uk-512.png',sizes:'512x512',type:'image/png'}]})}catch(e){}
+  const h=(a,f)=>{try{navigator.mediaSession.setActionHandler(a,f)}catch(e){}};
+  h('play',()=>NA.play());h('pause',()=>NA.pause());h('previoustrack',null);h('nexttrack',null);
+  h('seekbackward',()=>newsSkip(-15));h('seekforward',()=>newsSkip(30));
+  h('seekto',d=>{if(d&&d.seekTime!=null)NA.currentTime=d.seekTime});
+}
+function newsSkip(s){if(!N.cur||!NA.duration)return;NA.currentTime=Math.max(0,Math.min(NA.duration-0.5,NA.currentTime+s))}
+function newsTick(){
+  const r=newsCur();const mine=r&&N.cur===r.id;const b=$('#npbtn');
+  if(b)b.textContent=mine&&N.loading?'…':mine&&!NA.paused?'⏸':'▶';
+  if(mine&&NA.duration){const sk=$('#npseek');if(sk&&document.activeElement!==sk){sk.disabled=false;sk.value=Math.round(NA.currentTime/NA.duration*1000)}
+    const t=$('#nptime');if(t)t.textContent=fmtDur(NA.currentTime)+' / '+fmtDur(NA.duration)}
+  if(N.cur&&NA.duration&&!N.loading){
+    if(Date.now()-N.saved>5000){N.saved=Date.now();try{const p=newsPos();p[N.cur]=NA.currentTime;const ks=Object.keys(p);if(ks.length>40)delete p[ks[0]];localStorage.setItem('newsPos',JSON.stringify(p))}catch(e){}}
+    const rec=N.list.find(x=>x.id===N.cur);if(rec&&!rec.listened&&NA.currentTime/NA.duration>0.8){rec.listened=true;pb.collection('news').update(rec.id,{listened:true}).catch(()=>{})}
+  }
+}
+['timeupdate','loadedmetadata','play','pause','ended'].forEach(ev=>NA.addEventListener(ev,()=>{if(NA.src.startsWith('data:'))return;newsTick();
+  if('mediaSession' in navigator&&N.cur)try{navigator.mediaSession.playbackState=NA.paused?'paused':'playing'}catch(e){}}));
+document.addEventListener('input',e=>{if(e.target.id==='npseek'&&NA.duration)NA.currentTime=e.target.value/1000*NA.duration});
+if('serviceWorker' in navigator)navigator.serviceWorker.addEventListener('message',e=>{if(e.data&&e.data.nav)navTo(e.data.nav)});
 /* ---------- events ---------- */
 function mount(){
   if(S.player){plCur=-1;plTick()}
+  if(S.view&&S.view.news!==undefined)newsTick();
   const sc=$('#sortcard');if(sc)swipeable(sc,()=>sortMark(false),()=>sortMark(true));
   const wr=$('#wr');if(wr)setTimeout(()=>wr.focus(),50);
   const nb=$('#nextbtn');if(nb)setTimeout(()=>nb.focus(),50);
@@ -1921,6 +2033,14 @@ document.addEventListener('click',async e=>{
   const a=b.dataset.act,v=b.dataset.v;const s=S.ses;
   switch(a){
     case 'tab':S.tab=v;render();break;
+    case 'news':openNews();break;
+    case 'newsopen':openNews(v);break;
+    case 'newsplay':newsPlay();break;
+    case 'newsskip':newsSkip(+v);break;
+    case 'newsrate':{const st=set();st.newsRate=+v;Store.saveMeta('settings',st);if(N.cur){NA.playbackRate=+v;NA.defaultPlaybackRate=+v}render();break}
+    case 'newsimport':newsImport();break;
+    case 'podkey':podKey();break;
+    case 'podcopy':podCopy();break;
     case 'quick':{const ls=lessonsSorted();const st=set();
       const lids=v==='last'?[ls[0].id]:ls.map(l=>l.id);
       // Schnellstart (Startseite) immer gemischt – die Übungsart unter „Üben“ gilt nur dort
@@ -2065,6 +2185,7 @@ window.addEventListener('pagehide',()=>{audioStale=true});
 setTimeout(()=>checkUpdate(),3000);
 if('serviceWorker' in navigator)swReg(); // nur für Erinnerungen
 
+if(location.hash==='#news'){S.view={news:''};history.replaceState(null,'',location.pathname+location.search)}
 Store.init();
 </script>
 </body>
