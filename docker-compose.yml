@@ -47,6 +47,7 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}       # optional: Daily News (siehe README)
       NEWS_MODEL: ${NEWS_MODEL:-}
       NEWS_LEVEL: ${NEWS_LEVEL:-}
+      NEWS_EFFORT: ${NEWS_EFFORT-low}
       NEWS_TIME: ${NEWS_TIME:-}
       NEWS_PUSH: ${NEWS_PUSH-07:00}
       NEWS_FEEDS: ${NEWS_FEEDS:-}

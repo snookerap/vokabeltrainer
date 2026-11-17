@@ -942,6 +942,7 @@ ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
 ANTHROPIC_API = os.environ.get("ANTHROPIC_API", "https://api.anthropic.com/v1/messages")
 NEWS_MODEL = os.environ.get("NEWS_MODEL", "") or "claude-haiku-5-5"
 NEWS_LEVEL = os.environ.get("NEWS_LEVEL", "") or "A2"
+NEWS_EFFORT = os.environ.get("NEWS_EFFORT", "low")  # Nachdenk-Aufwand: low | medium | high, leer = Standard des Modells
 NEWS_TIME = os.environ.get("NEWS_TIME", "") or "06:30"   # ab dann wird die Folge erstellt
 NEWS_PUSH = os.environ.get("NEWS_PUSH", "07:00")         # Uhrzeit der Push-Mitteilung, leer = keine
 NEWS_MAX_ITEMS = int(os.environ.get("NEWS_MAX_ITEMS", "") or 15)
@@ -1120,7 +1121,7 @@ def pick_items(items, start, end, limit):
     return out
 
 
-def claude_json(system, user, max_tokens=1500):
+def claude_json(system, user, max_tokens=8000):
     """Ein Aufruf der Claude-API, Antwort als JSON. Gibt (daten, usage) zurück."""
     if FAKE:
         n = len(re.findall(r"^\d+\. ", user, re.M))
@@ -1128,8 +1129,12 @@ def claude_json(system, user, max_tokens=1500):
                  "headlines": [{"n": i + 1, "title": f"News {i + 1}", "text": "This is a test.", "source": "test"} for i in range(min(n, 3))],
                  "outro": "See you tomorrow.", "vocab": [{"en": "device", "de": "Gerät", "ex": "This [device] is smart."}]},
                 {"input_tokens": 0, "output_tokens": 0})
+    # Neuere Modelle (z. B. Haiku 5.5) denken standardmäßig nach; das Nachdenken zählt zu max_tokens.
+    # Für Zusammenfassungen reicht wenig Nachdenken (spart Tokens), max_tokens lässt Luft für Denken + Text.
     body = {"model": NEWS_MODEL, "max_tokens": max_tokens, "system": system,
             "messages": [{"role": "user", "content": user}]}
+    if NEWS_EFFORT:
+        body["output_config"] = {"effort": NEWS_EFFORT}
     r = requests.post(ANTHROPIC_API, json=body, timeout=180,
                       headers={"x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01"})
     if r.status_code >= 400:
@@ -1142,7 +1147,9 @@ def claude_json(system, user, max_tokens=1500):
     txt = "".join(b.get("text", "") for b in d.get("content", []) if b.get("type") == "text")
     m = re.search(r"\{.*\}", txt, re.S)
     if not m:
-        raise RuntimeError("Claude hat kein JSON geliefert: " + txt[:200])
+        kinds = ",".join(b.get("type", "?") for b in d.get("content", []))
+        raise RuntimeError(f"Claude hat kein JSON geliefert (stop_reason={d.get('stop_reason')}, Blöcke={kinds or '-'}, "
+                           f"Tokens raus={(d.get('usage') or {}).get('output_tokens')}): {txt[:200]}")
     return json.loads(m.group(0)), d.get("usage") or {}
 
 
