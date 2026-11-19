@@ -117,7 +117,7 @@ Claude wird **nur geöffnet, wenn du einen Claude-Knopf antippst**; die App selb
 - Jeden Morgen holt der Server die **Smart-Home-Nachrichten seit der letzten Folge** (sonst der letzten 24 Stunden) aus RSS-Feeds und lässt sie von Claude in **einfachem Englisch** (einstellbar, Standard A2) zusammenfassen. Zwei Teile: **bis zu 4 Smart-Home-Meldungen** (Home Assistant, The Verge, simon42, haus-automatisierung.com – nur echte Smart-Home-Themen) und **2 Nachrichten aus Deutschland und der Welt** (n-tv Politik, neutral). Dazu 5 Wörter des Tages mit Übersetzung und Beispielsatz.
 - Daraus entsteht eine **MP3 zum Anhören** (gewählte KI-Stimme, Google oder Piper) – z. B. im Auto.
 - Um 7 Uhr kommt eine **Push-Mitteilung** (an alle Geräte mit eingeschalteter Erinnerung) – Antippen öffnet direkt die Daily News.
-- **In der App** (Karte auf der Startseite): Text zum Mitlesen, Audio-Player mit ±15/30 s und Tempo 0,75–1,3× (läuft auch bei gesperrtem Bildschirm, merkt sich die Stelle), Links zu den Originalartikeln, ältere Folgen. Ab 80 % gilt eine Folge als gehört.
+- **In der App** (Karte auf der Startseite): Text zum Mitlesen, Audio-Player mit −15/+30 s (auch auf dem Sperrbildschirm) und Tempo 0,75–1,3× (läuft auch bei gesperrtem Bildschirm, merkt sich die Stelle), Links zu den Originalartikeln, ältere Folgen. Ab 80 % gilt eine Folge als gehört.
 - **Wörter des Tages übernehmen:** ein Knopf legt sie in die Stunde **„Daily News“** (ohne Datum) – Wörter, die schon in einer Stunde stehen, werden übersprungen.
 - **🚗 Podcast-Feed:** privater RSS-Link mit geheimem Schlüssel für Apple Podcasts, Overcast & Co. (z. B. im Auto über CarPlay). Einrichtung in der App unter *Daily News → Als Podcast hören*.
 - **Sparsam:** Die Feeds werden ohne KI gefiltert, Claude bekommt nur Titel und Anriss von höchstens 15 + 8 Meldungen – genau **ein Aufruf pro Tag** mit dem kleinen Modell Haiku (wenige Cent im Monat).
@@ -301,6 +301,7 @@ docker compose logs --tail 100 pocketbase
 - **Keine Erinnerung auf dem iPhone:** Die App muss vom Home-Bildschirm geöffnet sein (nicht in Safari/Chrome). Unter *Mehr → Tägliche Erinnerung → Test senden* prüfen; im Worker-Log steht „Erinnerung verschickt“.
 - **Widget öffnet Chrome statt der App:** unter *Mehr → Widget* „Web-App“ wählen, den angezeigten Kurzbefehl anlegen, Skript neu kopieren und das Widget einmal entfernen und neu hinzufügen.
 - **Kein Ton bei der ersten Karte (iPhone):** einmal irgendwo tippen – iOS gibt Ton nur nach einer Berührung frei.
+- **Daily News lässt sich auf dem Sperrbildschirm nicht fortsetzen:** Ab Version 1.24.1 setzt die App die Folge an der gemerkten Stelle neu auf, wenn iOS das Audio im Hintergrund verworfen hat. Klappt es trotzdem nicht, die App einmal öffnen und ▶ tippen – oder für unterwegs den Podcast-Feed in Apple Podcasts nutzen, der läuft unabhängig von der Web-App.
 
 ## Lizenz
 

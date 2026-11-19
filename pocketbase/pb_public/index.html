@@ -146,7 +146,7 @@ details summary{cursor:pointer;font-weight:700;padding:6px 0}
 <script src="pocketbase.umd.js"></script>
 <script>
 'use strict';
-const APP_VERSION='1.24.0 (17.11.2026)';
+const APP_VERSION='1.24.1 (19.11.2026)';
 /* ---------- helpers ---------- */
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
@@ -1896,7 +1896,7 @@ function newLesson(date,name){
 }
 /* ---------- Daily News ---------- */
 const NEWS_LID='Lnews',NEWS_RATES=[0.75,0.9,1,1.15,1.3];
-const N={list:[],loaded:false,cur:null,loading:false,blobs:{},saved:0};
+const N={list:[],loaded:false,cur:null,loading:false,blobs:{},saved:0,pos:0};
 const NA=new Audio();NA.preload='auto';
 async function loadNews(){
   try{N.list=(await pb.collection('news').getList(1,60,{sort:'-date',filter:'status="done"'})).items}catch(e){N.list=[]}
@@ -1968,41 +1968,73 @@ function newsImport(){
 }
 async function newsPlay(){
   const r=newsCur();if(!r||!r.audio)return;
-  if(N.cur===r.id&&!N.loading&&NA.src){if(NA.paused){NA.playbackRate=newsRate();NA.play().catch(()=>{})}else NA.pause();return}
+  if(N.cur===r.id&&!N.loading&&NA.src&&!NA.src.startsWith('data:')){if(NA.paused)newsResume();else NA.pause();return}
   try{PA.pause()}catch(e){}stopAudio();setSession('playback');
-  try{NA.src=SILENT;const p=NA.play();if(p)p.then(()=>NA.pause()).catch(()=>{})}catch(e){} // iOS: im Tippen freischalten
-  N.cur=r.id;N.loading=true;newsTick();
+  try{NA.src=SILENT;const p=NA.play();if(p)p.then(()=>{if(NA.src.startsWith('data:'))NA.pause()}).catch(()=>{})}catch(e){} // iOS: im Tippen freischalten
+  N.cur=r.id;N.loading=true;N.pos=newsPos()[r.id]||0;newsTick();
   try{
     if(!N.blobs[r.id]){const res=await fetch(await Store.fileUrl(r,'audio'));if(!res.ok)throw new Error('HTTP '+res.status);N.blobs[r.id]=URL.createObjectURL(await res.blob())}
     if(N.cur!==r.id)return;
-    NA.src=N.blobs[r.id];NA.playbackRate=newsRate();NA.defaultPlaybackRate=newsRate();
-    const pos=newsPos()[r.id];if(pos)NA.addEventListener('loadedmetadata',()=>{if(pos<(NA.duration||0)-10)NA.currentTime=pos},{once:true});
-    N.loading=false;newsMedia(r);await NA.play().catch(()=>{});
+    if(N.pos&&N.pos>=(r.duration||1e9)-10)N.pos=0;
+    newsSetSrc();N.loading=false;newsMedia(r);await NA.play().catch(()=>{});
   }catch(e){N.loading=false;N.cur=null;toast('Folge konnte nicht geladen werden: '+(e.message||e),'err')}
   newsTick();
 }
+// Quelle (neu) setzen und an die gemerkte Stelle springen
+function newsSetSrc(){
+  NA.src=N.blobs[N.cur];NA.playbackRate=newsRate();NA.defaultPlaybackRate=newsRate();
+  const pos=N.pos||0;if(pos>0)NA.addEventListener('loadedmetadata',()=>{try{NA.currentTime=pos}catch(e){}},{once:true});
+}
+// Weiter abspielen – auch vom Sperrbildschirm. iOS verwirft das Audio-Element manchmal, wenn die
+// Web-App pausiert im Hintergrund liegt; dann wird die Quelle neu gesetzt und an der Stelle fortgesetzt.
+function newsResume(){
+  if(!N.cur||!N.blobs[N.cur])return Promise.resolve();
+  const dead=!NA.src||NA.src.startsWith('data:')||!!NA.error||NA.readyState===0;
+  if(dead)newsSetSrc();
+  NA.playbackRate=newsRate();
+  return NA.play().catch(()=>{if(!dead){newsSetSrc();return NA.play().catch(()=>{})}});
+}
+function newsDur(){const d=NA.duration;if(isFinite(d)&&d>0)return d;const r=N.list.find(x=>x.id===N.cur);return r&&r.duration||0}
 function newsMedia(r){
   if(!('mediaSession' in navigator))return;
   try{navigator.mediaSession.metadata=new MediaMetadata({title:r.title||'Smart Home News',artist:'Daily News · '+fmtDate(r.date),album:'Vokabeltrainer',artwork:[{src:'/icons/icon-uk-512.png',sizes:'512x512',type:'image/png'}]})}catch(e){}
   const h=(a,f)=>{try{navigator.mediaSession.setActionHandler(a,f)}catch(e){}};
-  h('play',()=>NA.play());h('pause',()=>NA.pause());h('previoustrack',null);h('nexttrack',null);
+  h('play',()=>{newsResume()});h('pause',()=>{NA.pause()});h('stop',()=>{NA.pause()});
+  h('previoustrack',null);h('nexttrack',null);
+  // Sperrbildschirm: 15 s zurück, 30 s vor (wie in der App)
   h('seekbackward',()=>newsSkip(-15));h('seekforward',()=>newsSkip(30));
-  h('seekto',d=>{if(d&&d.seekTime!=null)NA.currentTime=d.seekTime});
+  h('seekto',d=>{if(d&&d.seekTime!=null)newsSeek(d.seekTime,d.fastSeek)});
 }
-function newsSkip(s){if(!N.cur||!NA.duration)return;NA.currentTime=Math.max(0,Math.min(NA.duration-0.5,NA.currentTime+s))}
+function newsSeek(t,fast){
+  if(!N.cur)return;const d=newsDur();t=Math.max(0,d?Math.min(d-0.5,t):t);N.pos=t;
+  if(NA.readyState===0||NA.src.startsWith('data:')){if(N.blobs[N.cur]&&!N.loading)newsSetSrc();newsTick();return}
+  try{if(fast&&NA.fastSeek)NA.fastSeek(t);else NA.currentTime=t}catch(e){}
+  newsPosState();newsTick();
+}
+// Ausgangspunkt ist die zuletzt bekannte Stelle – so addieren sich schnelle Doppeltipper richtig
+function newsSkip(s){if(!N.cur)return;const base=NA.seeking?N.pos:(NA.readyState?NA.currentTime:N.pos);newsSeek((base||0)+s)}
+function newsPosState(){
+  if(!('mediaSession' in navigator)||!navigator.mediaSession.setPositionState||!N.cur)return;
+  const d=newsDur();if(!d)return;
+  try{navigator.mediaSession.setPositionState({duration:d,playbackRate:NA.playbackRate||1,position:Math.min(d,Math.max(0,NA.readyState?NA.currentTime:N.pos||0))})}catch(e){}
+}
 function newsTick(){
   const r=newsCur();const mine=r&&N.cur===r.id;const b=$('#npbtn');
   if(b)b.textContent=mine&&N.loading?'…':mine&&!NA.paused?'⏸':'▶';
-  if(mine&&NA.duration){const sk=$('#npseek');if(sk&&document.activeElement!==sk){sk.disabled=false;sk.value=Math.round(NA.currentTime/NA.duration*1000)}
-    const t=$('#nptime');if(t)t.textContent=fmtDur(NA.currentTime)+' / '+fmtDur(NA.duration)}
-  if(N.cur&&NA.duration&&!N.loading){
-    if(Date.now()-N.saved>5000){N.saved=Date.now();try{const p=newsPos();p[N.cur]=NA.currentTime;const ks=Object.keys(p);if(ks.length>40)delete p[ks[0]];localStorage.setItem('newsPos',JSON.stringify(p))}catch(e){}}
+  const d=mine?newsDur():0;const t=mine?(NA.readyState&&!NA.src.startsWith('data:')?NA.currentTime:N.pos||0):0;
+  if(mine&&d){const sk=$('#npseek');if(sk&&document.activeElement!==sk){sk.disabled=false;sk.value=Math.round(t/d*1000)}
+    const tt=$('#nptime');if(tt)tt.textContent=fmtDur(t)+' / '+fmtDur(d)}
+  if(N.cur&&NA.duration&&!N.loading&&!NA.src.startsWith('data:')){
+    if(!NA.seeking)N.pos=NA.currentTime;
+    if(Date.now()-N.saved>5000){N.saved=Date.now();try{const p=newsPos();p[N.cur]=N.pos;const ks=Object.keys(p);if(ks.length>40)delete p[ks[0]];localStorage.setItem('newsPos',JSON.stringify(p))}catch(e){}}
     const rec=N.list.find(x=>x.id===N.cur);if(rec&&!rec.listened&&NA.currentTime/NA.duration>0.8){rec.listened=true;pb.collection('news').update(rec.id,{listened:true}).catch(()=>{})}
   }
 }
-['timeupdate','loadedmetadata','play','pause','ended'].forEach(ev=>NA.addEventListener(ev,()=>{if(NA.src.startsWith('data:'))return;newsTick();
+['timeupdate','loadedmetadata','play','pause','ended','seeked','ratechange'].forEach(ev=>NA.addEventListener(ev,()=>{if(NA.src.startsWith('data:'))return;newsTick();
+  if(ev!=='timeupdate')newsPosState();
+  if(ev==='pause'||ev==='ended')try{const p=newsPos();p[N.cur]=ev==='ended'?0:N.pos;localStorage.setItem('newsPos',JSON.stringify(p))}catch(e){}
   if('mediaSession' in navigator&&N.cur)try{navigator.mediaSession.playbackState=NA.paused?'paused':'playing'}catch(e){}}));
-document.addEventListener('input',e=>{if(e.target.id==='npseek'&&NA.duration)NA.currentTime=e.target.value/1000*NA.duration});
+document.addEventListener('input',e=>{if(e.target.id==='npseek'&&N.cur){const d=newsDur();if(d)newsSeek(e.target.value/1000*d)}});
 if('serviceWorker' in navigator)navigator.serviceWorker.addEventListener('message',e=>{if(e.data&&e.data.nav)navTo(e.data.nav)});
 /* ---------- events ---------- */
 function mount(){
