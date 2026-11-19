@@ -110,6 +110,10 @@ input.t:focus,select.t:focus,textarea.t:focus{outline:2px solid var(--acc);outli
 #pltx .tw{border-radius:6px;padding:1px 2px;cursor:pointer}
 .tv{background:var(--acc-soft);color:var(--acc);font-weight:700;border-radius:6px}
 #pltx .tw.cur{background:var(--acc);color:var(--acc-ink)}
+.nw{border-radius:5px;padding:1px 1px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.nw.on{background:var(--acc-soft);color:var(--acc);font-weight:700}
+#nwbar{position:fixed;left:12px;right:12px;max-width:536px;margin:0 auto;z-index:30;display:flex;gap:8px;padding:8px;border-radius:16px;background:var(--bg);box-shadow:var(--shadow);border:1px solid var(--line)}
+#nwbar[hidden]{display:none}
 .fb span{font-weight:400;color:var(--ink)}
 .rate{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
 .rate .btn{padding:12px 6px}
@@ -146,7 +150,7 @@ details summary{cursor:pointer;font-weight:700;padding:6px 0}
 <script src="pocketbase.umd.js"></script>
 <script>
 'use strict';
-const APP_VERSION='1.24.1 (19.11.2026)';
+const APP_VERSION='1.25.0 (19.11.2026)';
 /* ---------- helpers ---------- */
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>[...r.querySelectorAll(s)];
@@ -1896,7 +1900,7 @@ function newLesson(date,name){
 }
 /* ---------- Daily News ---------- */
 const NEWS_LID='Lnews',NEWS_RATES=[0.75,0.9,1,1.15,1.3];
-const N={list:[],loaded:false,cur:null,loading:false,blobs:{},saved:0,pos:0};
+const N={list:[],loaded:false,cur:null,loading:false,blobs:{},saved:0,pos:0,sel:null,paras:{}};
 const NA=new Audio();NA.preload='auto';
 async function loadNews(){
   try{N.list=(await pb.collection('news').getList(1,60,{sort:'-date',filter:'status="done"'})).items}catch(e){N.list=[]}
@@ -1925,8 +1929,9 @@ function viewNews(){
   if(!r)return `<div class="top">${back}<div class="grow"><h2>Daily News</h2></div></div><div class="card center pad"><p class="muted">Noch keine Folge. Der Server erstellt sie jeden Morgen, wenn die Daily News eingerichtet sind (siehe README).</p></div>${viewPodcast()}`;
   const d=r.data||{};const heads=d.headlines||[];const mine=N.cur===r.id;const {v,miss}=newsMissing(r);
   const hx=s=>esc(s).replace(/\[(.+?)\]/g,'<b>$1</b>');
+  if(!N.sel||N.sel.rid!==r.id)N.sel={rid:r.id,keys:new Set()};N.paras={};
   const part=p=>{const hs=heads.filter(h=>(h.part==='B')===(p==='B'));if(!hs.length)return '';
-    return `<div class="sub" style="margin:14px 0 4px">${p==='B'?'🌍 Deutschland & Welt':'🏠 Smart Home'}</div>`+hs.map(h=>`<h3 style="margin:10px 0 4px">${esc(h.title)}</h3><p style="margin:0 0 4px">${esc(h.text)}</p>${h.link?`<a class="small" href="${esc(h.link)}" target="_blank" rel="noopener">${esc(h.source||'Original')} ↗</a>`:`<span class="small muted">${esc(h.source||'')}</span>`}`).join('')};
+    return `<div class="sub" style="margin:14px 0 4px">${p==='B'?'🌍 Deutschland & Welt':'🏠 Smart Home'}</div>`+hs.map(h=>`<h3 style="margin:10px 0 4px">${nwText(h.title,'t'+heads.indexOf(h))}</h3><p style="margin:0 0 4px">${nwText(h.text,'h'+heads.indexOf(h))}</p>${h.link?`<a class="small" href="${esc(h.link)}" target="_blank" rel="noopener">${esc(h.source||'Original')} ↗</a>`:`<span class="small muted">${esc(h.source||'')}</span>`}`).join('')};
   const old=N.list.filter(x=>x.id!==r.id);
   return `<div class="top">${back}<div class="grow"><h2>Daily News</h2><div class="sub">${fmtDate(r.date)}${r.duration?' · '+fmtDur(r.duration):''}</div></div></div>
   <div class="card"><h3>${esc(r.title||'Smart Home News')}</h3>
@@ -1935,7 +1940,8 @@ function viewNews(){
       <div class="row" style="gap:8px;margin-top:8px"><button class="btn grow" data-act="newsskip" data-v="-15">↺ 15 s</button><button class="btn grow" data-act="newsskip" data-v="30">30 s ↻</button></div>
       <label class="f">Tempo</label><div class="seg">${NEWS_RATES.map(x=>`<button data-act="newsrate" data-v="${x}" class="${newsRate()===x?'on':''}">${String(x).replace('.',',')}×</button>`).join('')}</div>`:'<p class="muted small">Zu dieser Folge gibt es kein Audio.</p>'}
   </div>
-  <div class="card">${d.intro?`<p style="margin:0">${esc(d.intro)}</p>`:''}${part('A')}${part('B')}${d.outro?`<p style="margin:14px 0 0">${esc(d.outro)}</p>`:''}</div>
+  <div class="card"><p class="small muted" style="margin:0 0 10px">💡 Unbekannte Wörter antippen – mehrere nebeneinander ergeben eine Wortgruppe – und dann übernehmen.</p>${d.intro?`<p style="margin:0">${nwText(d.intro,'i')}</p>`:''}${part('A')}${part('B')}${d.outro?`<p style="margin:14px 0 0">${nwText(d.outro,'o')}</p>`:''}</div>
+  <div id="nwbar" hidden><button class="btn ghost" data-act="nwclear" aria-label="Auswahl aufheben">✕</button><button class="btn pri grow" data-act="nwadd" id="nwbtn">➕ übernehmen</button></div>
   ${v.length?`<div class="card"><h3>Wörter des Tages</h3><div class="list">${v.map(x=>`<div class="li"><div class="grow"><div class="en">${esc(x.en)}</div><div class="de">${esc(x.de)}</div>${x.ex?`<div class="small muted">${hx(x.ex)}</div>`:''}</div></div>`).join('')}</div>
     <button class="btn ${miss.length?'pri ':''}full" style="margin-top:12px" data-act="newsimport" ${miss.length?'':'disabled'}>${miss.length?`➕ ${miss.length===v.length?'Alle':miss.length} in den Vokabeltrainer`:'✓ Schon im Vokabeltrainer'}</button>
     <p class="small muted" style="margin:6px 0 0">Landen in der Stunde „Daily News“ und kommen dann wie neue Wörter ins Üben. Wörter, die du schon hast, werden übersprungen.</p></div>`:''}
@@ -1959,6 +1965,81 @@ async function podKey(){
   await Store.saveMeta('podcast',{key:newWidgetKey(),at:Date.now()});render();toast('Podcast-Link erzeugt');
 }
 async function podCopy(){try{await navigator.clipboard.writeText(podcastUrl());toast('Link kopiert')}catch(e){toast('Kopieren nicht möglich – Link antippen und kopieren','err')}}
+/* Eigene Wörter aus dem Text antippen und übernehmen */
+function nwText(txt,pid){
+  const parts=String(txt||'').split(/(\s+)/);const words=[];let k=0;
+  const html=parts.map(t=>{if(!t||/^\s+$/.test(t))return t;const i=k++;words.push(t);
+    if(!/[A-Za-z]/.test(t))return esc(t);
+    const key=pid+':'+i;return `<span class="nw${N.sel&&N.sel.keys.has(key)?' on':''}" data-nw="${key}">${esc(t)}</span>`}).join('');
+  N.paras[pid]={text:String(txt||''),words};return html;
+}
+const nwClean=t=>String(t||'').replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu,'');
+// Markierte Wörter zu Wortgruppen zusammenfassen (nebeneinander = eine Gruppe), mit Satz als Kontext
+function nwPhrases(){
+  if(!N.sel)return [];const by={};
+  for(const key of N.sel.keys){const [pid,i]=key.split(':');(by[pid]=by[pid]||[]).push(+i)}
+  const out=[],seen=new Set();
+  for(const pid of Object.keys(N.paras)){const ix=(by[pid]||[]).sort((a,b)=>a-b);if(!ix.length)continue;const P=N.paras[pid];
+    const groups=[];for(const i of ix){const g=groups[groups.length-1];if(g&&g[g.length-1]===i-1)g.push(i);else groups.push([i])}
+    // Sätze mit ihrem ersten Wortindex
+    const sents=[];let wi=0;for(const sn of P.text.split(/(?<=[.!?])\s+/)){const n=sn.split(/\s+/).filter(x=>x).length;sents.push({s:sn,from:wi,to:wi+n-1});wi+=n}
+    for(const g of groups){
+      const surf=g.map(i=>P.words[i]).join(' ');const en=nwClean(surf);if(!en)continue;const nk=nNorm(en);if(seen.has(nk))continue;seen.add(nk);
+      const st=sents.find(x=>g[0]>=x.from&&g[0]<=x.to);const ctx=st?st.s:P.text;
+      const mm=new RegExp('(^|[^\\p{L}])'+en.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(?![\\p{L}])','u').exec(ctx);const pos=mm?mm.index+mm[1].length:-1;const ex=pos>=0&&g.every(i=>!st||i<=st.to)?ctx.slice(0,pos)+'['+en+']'+ctx.slice(pos+en.length):'';
+      out.push({en,ctx,ex})}
+  }
+  return out;
+}
+function nwBar(){
+  const bar=$('#nwbar');if(!bar)return;const n=nwPhrases().length;bar.hidden=!n;
+  const tb=$('#tabs');const top=tb&&!tb.hidden?tb.getBoundingClientRect().top:innerHeight;bar.style.bottom=Math.max(12,innerHeight-top+10)+'px';
+  const b=$('#nwbtn');if(b)b.textContent=n===1?'➕ 1 Wort übernehmen':`➕ ${n} Wörter übernehmen`;
+}
+function nwToggle(el){
+  if(!N.sel)return;const k=el.dataset.nw;if(N.sel.keys.has(k))N.sel.keys.delete(k);else N.sel.keys.add(k);
+  el.classList.toggle('on',N.sel.keys.has(k));nwBar();
+}
+function nwClear(){if(N.sel)N.sel.keys.clear();$$('.nw.on').forEach(x=>x.classList.remove('on'));nwBar()}
+async function nwAdd(){
+  const ph=nwPhrases();if(!ph.length)return;
+  const have=new Set(allItems(Object.keys(S.lessons)).map(i=>nNorm(i.w.en)));
+  const list=ph.map(x=>Object.assign({},x,{dup:have.has(nNorm(x.en))}));
+  const todo=list.filter(x=>!x.dup);
+  if(!todo.length){toast(list.length===1?'Das Wort ist schon im Vokabeltrainer':'Die Wörter sind schon im Vokabeltrainer');nwClear();return}
+  const root=openSheet(`<h2>Wörter übernehmen</h2><div class="center pad muted">Übersetze ${todo.length===1?'1 Wort':todo.length+' Wörter'} …</div>`);
+  let tr=[];
+  try{
+    const res=await fetch('/api/news/translate',{method:'POST',headers:{'Content-Type':'application/json','Authorization':pb.authStore.token},body:JSON.stringify({items:todo.map(x=>({en:x.en,ctx:x.ctx}))})});
+    const j=await res.json().catch(()=>({}));if(!res.ok)throw new Error(j.error||('HTTP '+res.status));tr=j.items||[];
+  }catch(e){toast('Übersetzung nicht möglich – bitte selbst eintragen ('+(e.message||e)+')','err')}
+  if(!$('.sheet',root))return; // Fenster wurde geschlossen
+  todo.forEach((x,i)=>{const t=tr[i]||{};x.de=t.de||'';x.base=t.en&&t.en!==x.en?t.en:''});
+  const row=(x,i)=>`<div class="xrow" data-i="${i}"><div class="row" style="gap:8px;align-items:center">
+      <input type="checkbox" class="nwon" checked style="width:22px;height:22px">
+      <div class="grow"><input class="t xi nwen" value="${esc(x.base||x.en)}" autocapitalize="off" spellcheck="false" aria-label="Englisch">
+      <input class="t xi nwde" value="${esc(x.de)}" placeholder="Deutsch" style="margin-top:6px" aria-label="Deutsch"></div></div>
+      ${x.ex?`<div class="small muted" style="margin-top:4px">${esc(x.ex).replace(/\[(.+?)\]/g,'<b>$1</b>')}</div>`:''}</div>`;
+  const dups=list.filter(x=>x.dup);
+  $('.sheet',root).innerHTML=`<div class="grab"></div><h2>Wörter übernehmen</h2><p class="small muted" style="margin:0 0 6px">Übersetzung prüfen und bei Bedarf ändern. Landen in der Stunde „Daily News“.</p>
+    ${todo.map(row).join('')}${dups.length?`<p class="small muted">Schon drin: ${dups.map(x=>esc(x.en)).join(', ')}</p>`:''}
+    <div class="row" style="margin-top:16px;gap:8px"><button class="btn grow" data-r="0">Abbrechen</button><button class="btn pri grow" data-r="1">Übernehmen</button></div>`;
+  root.onclick=e=>{const b=e.target.closest('[data-r]');if(!b&&!e.target.classList.contains('scrim'))return;
+    if(b&&b.dataset.r==='1'){
+      const ok=[];$$('.xrow',root).forEach(el=>{const x=todo[+el.dataset.i];if(!$('.nwon',el).checked)return;
+        const en=$('.nwen',el).value.trim(),de=$('.nwde',el).value.trim();if(!en||!de)return;
+        const w={en,de};if(x.ex)w.ex=x.ex;ok.push(w)});
+      if(!ok.length){toast('Bitte bei jedem Wort Deutsch eintragen','err');return}
+      root.onclick=null;root.innerHTML='';nwSave(ok);return}
+    root.onclick=null;root.innerHTML=''};
+}
+function nwSave(ws){
+  const cur=S.lessons[NEWS_LID];const maxO=Math.max(0,...Object.values(S.lessons).map(l=>l.order||0));
+  const l=cur?Object.assign({},cur,{words:[...(cur.words||[])]}):{id:NEWS_LID,name:'Daily News',date:'',dated:false,order:maxO+1,words:[]};
+  const have=new Set(allItems(Object.keys(S.lessons)).map(i=>nNorm(i.w.en)));let n=0;
+  for(const x of ws){if(have.has(nNorm(x.en)))continue;have.add(nNorm(x.en));const w={id:uid('w'),de:x.de,en:x.en};if(x.ex)w.ex=x.ex;l.words.push(w);n++}
+  if(n)Store.saveLesson(l);nwClear();render();toast(n?(n===1?'1 Wort':n+' Wörter')+' in „Daily News“ übernommen':'Schon im Vokabeltrainer');
+}
 function newsImport(){
   const r=newsCur();if(!r)return;const {miss}=newsMissing(r);if(!miss.length)return toast('Alle Wörter sind schon drin');
   const cur=S.lessons[NEWS_LID];const maxO=Math.max(0,...Object.values(S.lessons).map(l=>l.order||0));
@@ -2039,7 +2120,7 @@ if('serviceWorker' in navigator)navigator.serviceWorker.addEventListener('messag
 /* ---------- events ---------- */
 function mount(){
   if(S.player){plCur=-1;plTick()}
-  if(S.view&&S.view.news!==undefined)newsTick();
+  if(S.view&&S.view.news!==undefined){newsTick();nwBar()}
   const sc=$('#sortcard');if(sc)swipeable(sc,()=>sortMark(false),()=>sortMark(true));
   const wr=$('#wr');if(wr)setTimeout(()=>wr.focus(),50);
   const nb=$('#nextbtn');if(nb)setTimeout(()=>nb.focus(),50);
@@ -2061,6 +2142,7 @@ document.addEventListener('click',async e=>{
   const tb=e.target.closest('#tabs button');if(tb){S.tab=tb.dataset.tab;S.view=null;if(tb.dataset.tab==='practice')S.setup=null;render();window.scrollTo(0,0);return}
   const tw=e.target.closest('#pltx .tw');if(tw&&S.player){const rec=S.recs[S.player.q[S.player.idx]];const t=rec&&rec.transcript&&rec.transcript[+tw.dataset.ti];
     if(t){PA.currentTime=Math.max(0,t.s-0.15);plScrollAt=Date.now();if(PA.paused)PA.play().catch(()=>{})}return}
+  const nw=e.target.closest('.nw');if(nw&&app.contains(nw)){nwToggle(nw);return}
   const b=e.target.closest('[data-act]');if(!b||!app.contains(b))return;
   const a=b.dataset.act,v=b.dataset.v;const s=S.ses;
   switch(a){
@@ -2071,6 +2153,8 @@ document.addEventListener('click',async e=>{
     case 'newsskip':newsSkip(+v);break;
     case 'newsrate':{const st=set();st.newsRate=+v;Store.saveMeta('settings',st);if(N.cur){NA.playbackRate=+v;NA.defaultPlaybackRate=+v}render();break}
     case 'newsimport':newsImport();break;
+    case 'nwclear':nwClear();break;
+    case 'nwadd':nwAdd();break;
     case 'podkey':podKey();break;
     case 'podcopy':podCopy();break;
     case 'quick':{const ls=lessonsSorted();const st=set();

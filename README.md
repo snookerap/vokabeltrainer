@@ -119,6 +119,7 @@ Claude wird **nur geöffnet, wenn du einen Claude-Knopf antippst**; die App selb
 - Um 7 Uhr kommt eine **Push-Mitteilung** (an alle Geräte mit eingeschalteter Erinnerung) – Antippen öffnet direkt die Daily News.
 - **In der App** (Karte auf der Startseite): Text zum Mitlesen, Audio-Player mit −15/+30 s (auch auf dem Sperrbildschirm) und Tempo 0,75–1,3× (läuft auch bei gesperrtem Bildschirm, merkt sich die Stelle), Links zu den Originalartikeln, ältere Folgen. Ab 80 % gilt eine Folge als gehört.
 - **Wörter des Tages übernehmen:** ein Knopf legt sie in die Stunde **„Daily News“** (ohne Datum) – Wörter, die schon in einer Stunde stehen, werden übersprungen.
+- **Eigene Wörter übernehmen:** im Text unbekannte Wörter antippen (nebeneinander markierte Wörter werden eine Wortgruppe, z. B. „heat pump“) → *übernehmen*. Der Server holt die deutsche Bedeutung passend zum Satz (ein kleiner Haiku-Aufruf nur mit den markierten Wörtern, wenige hundert Tokens), du prüfst und änderst sie bei Bedarf. Die Wörter landen mit dem Satz als Lückensatz in der Stunde „Daily News“. Ins Audio kommen sie nicht.
 - **🚗 Podcast-Feed:** privater RSS-Link mit geheimem Schlüssel für Apple Podcasts, Overcast & Co. (z. B. im Auto über CarPlay). Einrichtung in der App unter *Daily News → Als Podcast hören*.
 - **Sparsam:** Die Feeds werden ohne KI gefiltert, Claude bekommt nur Titel und Anriss von höchstens 15 + 8 Meldungen – genau **ein Aufruf pro Tag** mit dem kleinen Modell Haiku (wenige Cent im Monat).
 
@@ -262,7 +263,7 @@ Zum Verbrauch: Ein Kurs mit rund 2.000 Wörtern braucht beim ersten Einsprechen 
 ## Daily News einrichten (optional)
 
 1. Auf [console.anthropic.com](https://console.anthropic.com) ein Konto anlegen, unter *Billing* etwas Guthaben aufladen (z. B. 5 €) und unter *API Keys* einen Schlüssel erstellen. Das ist **nicht** das Claude-Abo – die API wird getrennt abgerechnet. Empfehlung: unter *Limits* ein kleines Monatslimit setzen.
-2. In die `.env`: `ANTHROPIC_API_KEY=…` (weitere Einstellungen siehe `.env.example`), danach `docker compose up -d --build`.
+2. In die `.env`: `ANTHROPIC_API_KEY=…` (weitere Einstellungen siehe `.env.example`), danach `docker compose up -d --build`. Der Schlüssel geht an beide Container: an den Worker für die Folgen und an PocketBase für das Übersetzen eigener Wörter (`/api/news/translate`, nur angemeldet).
 3. Quellen prüfen, ohne Claude aufzurufen: `docker compose exec worker python worker.py news --dry` – zeigt, welche Meldungen seit der letzten Folge gefunden werden.
 4. Folge sofort erstellen (sonst automatisch ab `NEWS_TIME`, Standard 6:30): `docker compose exec worker python worker.py news`. Ein erneuter Aufruf erstellt die Folge des Tages neu.
 5. Podcast (optional): in der App *Daily News → Als Podcast hören → Podcast-Link erzeugen*, Link kopieren und in der Podcast-App „per URL folgen“. Den Link über die **öffentliche Adresse** kopieren (https://…), sonst klappt es nur im Heimnetz. Der Feed liegt unter `/api/news/podcast.xml?key=…`, die MP3s unter `/api/news/audio/<id>.mp3?key=…` (ohne Anmeldung, nur mit Schlüssel; „Neuer Schlüssel“ sperrt den alten Link).

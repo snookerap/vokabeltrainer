@@ -15,6 +15,8 @@ services:
       APP_OPERATOR_NAME: ${APP_OPERATOR_NAME:-}        # für die Datenschutzseite
       APP_OPERATOR_CONTACT: ${APP_OPERATOR_CONTACT:-}
       APP_PROXY_PROVIDER: ${APP_PROXY_PROVIDER:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}       # optional: eigene Wörter aus den Daily News übersetzen
+      NEWS_MODEL: ${NEWS_MODEL:-}
     volumes:
       - ./data/pb_data:/pb/pb_data   # Datenbank + MP3s -> diesen Ordner sichern
       - ./pocketbase/pb_public:/pb/pb_public:ro         # App-Dateien: Änderungen wirken sofort
